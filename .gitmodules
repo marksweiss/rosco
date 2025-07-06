@@ -1,0 +1,3 @@
+[submodule "tools/prelude"]
+	path = tools/prelude
+	url = https://github.com/aerugo/prelude.git
