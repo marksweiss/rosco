@@ -20,8 +20,9 @@ After the last outer block, the parser constructs a `TrackGrid`, setting its tra
 - `|` indicates alternation
 - `.` represents any chracter
 
---- 
+---
 
+```
 COMMENT -> #.*
 
 DELAY -> delay mix f32 decay f32 interval_ms f32 duration_ms f32 num_repeats usize num_predelay_samples usize num_concurrent_delays uszie 
@@ -57,5 +58,4 @@ ASSIGNMENT -> let IDENTIFIER = EXPR
 OUTER_BLOCK -> SEQUENCE_DEF{1} ENVELOPE_DEF* EFFECT_DEF* NOTE_DECLARATION*
 
 SCRIPT -> ASSIGNMENT* OUTER_BLOCK+
-
----
+```
