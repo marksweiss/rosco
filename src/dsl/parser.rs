@@ -388,7 +388,7 @@ impl Parser {
             let mut chars = line_content.chars().peekable();
             let mut in_generator = false;
             let mut j: usize= 0;
-            let mut lbound: usize= 0;
+            let mut lbound: usize = 0;
             let mut rbound: usize = 0;
             while let Some(ch) = chars.next() {
                 if ch == '\n' {
