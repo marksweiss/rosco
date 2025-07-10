@@ -8,13 +8,15 @@ authors = ["Mark S. Weiss"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# TODO UPDATE
 cpal = "0.15.3"
 derive_builder = "0.20.0"
 float_eq = "1.0.1"
 hound = "3.5.1"
 musicxml = "1.1"
 nodi = "1.0.0"
-once_cell = "1.19.0"
+# TODO WHY USING ALPHA THIRD_PARTY RAND?
 rand = "0.9.0-alpha.2"
 rand_distr = "0.5.0-alpha.3"
+# TODO IS THEIR NATIVE REGEX?
 regex = "1.10.3"
