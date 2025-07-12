@@ -5,7 +5,7 @@ use crate::common::constants::NYQUIST_FREQUENCY;  // khz samples per second
 use crate::note::playback_note::{NoteType, PlaybackNote};
 
 pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &OscillatorTables,
-                              sample_position: f32, sample_count: u64) -> f32 {
+                              sample_position: f32, sample_count: u64) -> (f32, f32) {
     match playback_note.note_type {
         NoteType::Oscillator => {
             let mut sample = 0.0;
@@ -23,35 +23,64 @@ pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &Osc
                 }
             }
 
-            playback_note.apply_effects(playback_note.note.volume * sample, sample_position,
-                                        sample_count)
-        }
+            match playback_note.num_channels {
+                1 => {
+                    let sample = playback_note.apply_effects(
+                        playback_note.note.volume * sample, sample_position, sample_count);
+                    (sample, sample)
+                }
+                2 => {
+                    playback_note.apply_effects_stereo(
+                        playback_note.note.volume * sample, sample_position, sample_count)
+                }
+                _ => (0.0, 0.0)
+            }
+    }
         NoteType::Sample => {
-            let volume = playback_note.sampled_note.volume;
-            // let sample = playback_note.sampled_note.get_sample_at(sample_count as usize);
-            let sample = playback_note.sampled_note.next_sample();
-            playback_note.apply_effects(volume * sample, sample_position, sample_count)
+            match playback_note.num_channels {
+                1 => {
+                    let mut sample = playback_note.sampled_note.next_sample();
+                    sample = playback_note.apply_effects(
+                        playback_note.sampled_note.volume * sample, sample_position, sample_count);
+                    (sample, sample)
+                }
+                2 => {
+                    let sample = playback_note.sampled_note.next_sample();
+                    playback_note.apply_effects_stereo(
+                        playback_note.note.volume * sample, sample_position, sample_count)
+                }
+                _ => (0.0, 0.0)
+            }
         }
     }
 }
 
 pub(crate) fn get_notes_sample(playback_notes: &mut Vec<PlaybackNote>,
                                oscillator_tables: &OscillatorTables,
-                               sample_position: f32, sample_count: u64) -> f32 {
-    let mut out_sample = 0.0;
+                               sample_position: f32, sample_count: u64) -> (f32, f32) {
+    let mut out_sample_l = 0.0;
+    let mut out_sample_r = 0.0;
     for playback_note in playback_notes.iter_mut() {
         if sample_count > playback_note.playback_sample_end_time {
             continue;
         }
-        out_sample += get_note_sample(playback_note, oscillator_tables, sample_position,
-                                      sample_count);
+        let next_samples = get_note_sample(playback_note, oscillator_tables,
+                                           sample_position, sample_count);
+        out_sample_l += next_samples.0;
+        out_sample_r += next_samples.1;
     }
 
-    if out_sample >= NYQUIST_FREQUENCY {
-        out_sample = NYQUIST_FREQUENCY - 1.0;
-    } else if out_sample <= -NYQUIST_FREQUENCY {
-        out_sample = -NYQUIST_FREQUENCY + 1.0;
+    if out_sample_l >= NYQUIST_FREQUENCY {
+        out_sample_l = NYQUIST_FREQUENCY - 1.0;
+    } else if out_sample_l <= -NYQUIST_FREQUENCY {
+        out_sample_l = -NYQUIST_FREQUENCY + 1.0;
     }
-    out_sample
+    if out_sample_r >= NYQUIST_FREQUENCY {
+        out_sample_r = NYQUIST_FREQUENCY - 1.0;
+    } else if out_sample_r <= -NYQUIST_FREQUENCY {
+        out_sample_r = -NYQUIST_FREQUENCY + 1.0;
+    }
+
+    (out_sample_l, out_sample_r)
 }
 

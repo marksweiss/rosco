@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use crate::common::float_utils::float_geq;
 use crate::effect::delay::Delay;
 use crate::envelope::envelope::Envelope;
 use crate::effect::flanger::Flanger;
@@ -55,6 +56,12 @@ pub(crate) struct PlaybackNote {
 
     #[builder(default = "no_op_effects()")]
     pub(crate) track_effects: TrackEffects,
+    
+    #[builder(default = "0.0")]
+    pub(crate) panning: f32,
+
+    #[builder(default = "1")]
+    pub(crate) num_channels: i8,
 }
 
 #[allow(dead_code)]
@@ -178,6 +185,20 @@ impl PlaybackNote {
         }
 
         output_sample
+    }
+
+    pub(crate) fn apply_effects_stereo(&mut self, sample: f32, sample_position: f32,
+                                sample_count: u64) -> (f32, f32) {
+        let mut left = self.apply_effects(sample, sample_position, sample_count);
+        let mut right = self.apply_effects(sample, sample_position, sample_count);
+        if float_geq(self.panning, 0.0) {
+            left *= 1.0 - self.panning / 2.0;
+            right *= 1.0 + self.panning / 2.0;
+        } else if self.panning < 0.0 {
+            left *= 1.0 + self.panning / 2.0;
+            right *= 1.0 - self.panning / 2.0;
+        }
+        (left, right) 
     }
 }
 
