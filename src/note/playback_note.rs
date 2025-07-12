@@ -56,7 +56,7 @@ pub(crate) struct PlaybackNote {
 
     #[builder(default = "no_op_effects()")]
     pub(crate) track_effects: TrackEffects,
-    
+
     #[builder(default = "0.0")]
     pub(crate) panning: f32,
 
@@ -191,6 +191,7 @@ impl PlaybackNote {
                                 sample_count: u64) -> (f32, f32) {
         let mut left = self.apply_effects(sample, sample_position, sample_count);
         let mut right = self.apply_effects(sample, sample_position, sample_count);
+        // Apply both per-note and track-level panning
         if float_geq(self.panning, 0.0) {
             left *= 1.0 - self.panning / 2.0;
             right *= 1.0 + self.panning / 2.0;
@@ -198,7 +199,15 @@ impl PlaybackNote {
             left *= 1.0 + self.panning / 2.0;
             right *= 1.0 - self.panning / 2.0;
         }
-        (left, right) 
+        if float_geq(self.track_effects.panning, 0.0) {
+            left *= 1.0 - self.track_effects.panning / 2.0;
+            right *= 1.0 + self.track_effects.panning / 2.0;
+        } else if self.track_effects.panning < 0.0 {
+            left *= 1.0 + self.track_effects.panning / 2.0;
+            right *= 1.0 - self.track_effects.panning / 2.0;
+        }
+        
+        (left, right)
     }
 }
 

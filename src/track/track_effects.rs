@@ -21,6 +21,12 @@ pub(crate) struct TrackEffects {
     #[allow(dead_code)]
     #[builder(default = "Vec::new()")]
     pub(crate) delays: Vec<Delay>,
+
+    #[builder(default = "0.0")]
+    pub(crate) panning: f32,
+
+    #[builder(default = "1")]
+    pub(crate) num_channels: i8,
 }
 
 pub(crate) fn no_op_effects() -> TrackEffects {

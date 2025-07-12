@@ -6,6 +6,12 @@ use crate::note::playback_note::{NoteType, PlaybackNote};
 
 pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &OscillatorTables,
                               sample_position: f32, sample_count: u64) -> (f32, f32) {
+    // Set to stereo output if either the note or the track is set to stereo
+    let mut num_channels = playback_note.num_channels;
+    if num_channels == 1 {
+        num_channels = playback_note.track_effects.num_channels;
+    }
+    
     match playback_note.note_type {
         NoteType::Oscillator => {
             let mut sample = 0.0;
@@ -23,7 +29,7 @@ pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &Osc
                 }
             }
 
-            match playback_note.num_channels {
+            match num_channels {
                 1 => {
                     let sample = playback_note.apply_effects(
                         playback_note.note.volume * sample, sample_position, sample_count);
@@ -35,9 +41,9 @@ pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &Osc
                 }
                 _ => (0.0, 0.0)
             }
-    }
+        }
         NoteType::Sample => {
-            match playback_note.num_channels {
+            match num_channels {
                 1 => {
                     let mut sample = playback_note.sampled_note.next_sample();
                     sample = playback_note.apply_effects(
