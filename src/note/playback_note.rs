@@ -193,18 +193,18 @@ impl PlaybackNote {
         let mut right = self.apply_effects(sample, sample_position, sample_count);
         // Apply both per-note and track-level panning
         if float_geq(self.panning, 0.0) {
-            left *= 1.0 - self.panning / 2.0;
-            right *= 1.0 + self.panning / 2.0;
+            left *= 1.0 - self.panning;
+            right *= 1.0 + self.panning;
         } else if self.panning < 0.0 {
-            left *= 1.0 + self.panning / 2.0;
-            right *= 1.0 - self.panning / 2.0;
+            left *= 1.0 + self.panning;
+            right *= 1.0 - self.panning;
         }
         if float_geq(self.track_effects.panning, 0.0) {
-            left *= 1.0 - self.track_effects.panning / 2.0;
-            right *= 1.0 + self.track_effects.panning / 2.0;
+            left *= 1.0 - self.track_effects.panning;
+            right *= 1.0 + self.track_effects.panning;
         } else if self.track_effects.panning < 0.0 {
-            left *= 1.0 + self.track_effects.panning / 2.0;
-            right *= 1.0 - self.track_effects.panning / 2.0;
+            left *= 1.0 + self.track_effects.panning;
+            right *= 1.0 - self.track_effects.panning;
         }
         
         (left, right)
