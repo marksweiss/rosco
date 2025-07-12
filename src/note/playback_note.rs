@@ -57,9 +57,11 @@ pub(crate) struct PlaybackNote {
     #[builder(default = "no_op_effects()")]
     pub(crate) track_effects: TrackEffects,
 
+    // TODO enforce -1.0..1.0 with builder validator or custom builder
     #[builder(default = "0.0")]
     pub(crate) panning: f32,
 
+    // TODO enforce 0 or 1 with builder validator or custom builder
     #[builder(default = "1")]
     pub(crate) num_channels: i8,
 }
@@ -206,7 +208,7 @@ impl PlaybackNote {
             left *= 1.0 + self.track_effects.panning;
             right *= 1.0 - self.track_effects.panning;
         }
-        
+
         (left, right)
     }
 }
