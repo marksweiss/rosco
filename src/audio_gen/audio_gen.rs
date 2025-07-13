@@ -8,8 +8,8 @@ use crate::common::constants::SAMPLE_RATE;
 use crate::note::playback_note::PlaybackNote;
 
 // TODO SUPPORT LOFI AND 32-BIT
-static WAV_SPEC: hound::WavSpec  = hound::WavSpec {
-    channels: 1,
+static WAV_SPEC: hound::WavSpec = hound::WavSpec {
+    channels: 2,
     sample_rate: SAMPLE_RATE as u32,
     bits_per_sample: 16,
     sample_format: hound::SampleFormat::Int,

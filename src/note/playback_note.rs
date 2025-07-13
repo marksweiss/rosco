@@ -1,5 +1,4 @@
 use derive_builder::Builder;
-use crate::common::float_utils::float_geq;
 use crate::effect::delay::Delay;
 use crate::envelope::envelope::Envelope;
 use crate::effect::flanger::Flanger;
@@ -193,22 +192,23 @@ impl PlaybackNote {
                                 sample_count: u64) -> (f32, f32) {
         let mut left = self.apply_effects(sample, sample_position, sample_count);
         let mut right = self.apply_effects(sample, sample_position, sample_count);
-        // Apply both per-note and track-level panning
-        if float_geq(self.panning, 0.0) {
-            left *= 1.0 - self.panning;
-            right *= 1.0 + self.panning;
-        } else if self.panning < 0.0 {
-            left *= 1.0 + self.panning;
-            right *= 1.0 - self.panning;
-        }
-        if float_geq(self.track_effects.panning, 0.0) {
-            left *= 1.0 - self.track_effects.panning;
-            right *= 1.0 + self.track_effects.panning;
-        } else if self.track_effects.panning < 0.0 {
-            left *= 1.0 + self.track_effects.panning;
-            right *= 1.0 - self.track_effects.panning;
-        }
 
+        // Apply both per-note and track-level panning
+        if self.panning > 0.0 {
+            left *= 0.5 - self.panning;
+            right *= 0.5 + self.panning;
+        } else if self.panning < 0.0 {
+            left *= 0.5 + self.panning;
+            right *= 0.5 - self.panning;
+        }
+        if self.track_effects.panning > 0.0 {
+            left *= 0.5 - self.track_effects.panning;
+            right *= 0.5 + self.track_effects.panning;
+        } else if self.track_effects.panning < 0.0 {
+            left *= 0.5 + self.track_effects.panning;
+            right *= 0.5 - self.track_effects.panning;
+        }
+        
         (left, right)
     }
 }

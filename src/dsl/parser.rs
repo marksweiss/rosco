@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use regex;
 
 use crate::audio_gen::oscillator::Waveform;
-use crate::effect::delay::{DelayBuilder};
+use crate::effect::delay::DelayBuilder;
 use crate::effect::flanger::{FlangerBuilder};
 use crate::effect::lfo::{LFOBuilder};
 use crate::envelope::envelope::{EnvelopeBuilder};
 use crate::envelope::envelope_pair::EnvelopePair;
-use crate::meter::durations::DurationType as MeterDurationType;
+use crate::meter::durations::{DurationType};
 use crate::note::note::{NoteBuilder};
 use crate::note::playback_note::{NoteType, PlaybackNote, PlaybackNoteBuilder};
 use crate::note::sampled_note::{SampledNoteBuilder};
@@ -18,59 +18,6 @@ use crate::sequence::note_sequence_trait::AppendNote;
 use crate::track::track::{Track, TrackBuilder};
 use crate::track::track_effects::{TrackEffects, TrackEffectsBuilder};
 use crate::track::track_grid::{TrackGrid, TrackGridBuilder};
-
-#[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)]
-pub enum DslDurationType {
-    Whole,
-    Half,
-    Quarter,
-    Eighth,
-    Sixteenth,
-    ThirtySecond,
-    SixtyFourth,
-    Fraction(f32), // For 1, 1/2, 1/4, etc.
-}
-
-impl FromStr for DslDurationType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Whole" => Ok(DslDurationType::Whole),
-            "Half" => Ok(DslDurationType::Half),
-            "Quarter" => Ok(DslDurationType::Quarter),
-            "Eighth" => Ok(DslDurationType::Eighth),
-            "Sixteenth" => Ok(DslDurationType::Sixteenth),
-            "ThirtySecond" => Ok(DslDurationType::ThirtySecond),
-            "SixtyFourth" => Ok(DslDurationType::SixtyFourth),
-            "1" => Ok(DslDurationType::Fraction(1.0)),
-            "1/2" => Ok(DslDurationType::Fraction(0.5)),
-            "1/4" => Ok(DslDurationType::Fraction(0.25)),
-            "1/8" => Ok(DslDurationType::Fraction(0.125)),
-            "1/16" => Ok(DslDurationType::Fraction(0.0625)),
-            "1/32" => Ok(DslDurationType::Fraction(0.03125)),
-            "1/64" => Ok(DslDurationType::Fraction(0.015625)),
-            _ => Err(format!("Unknown duration type: {}", s)),
-        }
-    }
-}
-
-impl DslDurationType {
-    #[allow(dead_code)]
-    fn to_factor(&self) -> f32 {
-        match self {
-            DslDurationType::Whole => 1.0,
-            DslDurationType::Half => 0.5,
-            DslDurationType::Quarter => 0.25,
-            DslDurationType::Eighth => 0.125,
-            DslDurationType::Sixteenth => 0.0625,
-            DslDurationType::ThirtySecond => 0.03125,
-            DslDurationType::SixtyFourth => 0.015625,
-            DslDurationType::Fraction(f) => *f,
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
@@ -235,9 +182,10 @@ pub struct EnvelopeDef {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct SequenceDef {
-    pub dur: DslDurationType,
+    pub dur: DurationType,
     pub tempo: u8,
     pub num_steps: usize,
+    pub panning: Option<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -377,6 +325,7 @@ impl Parser {
     }
 
     // TODO FIX INNER LOOP BORROW ISSUE SO THAT WE CAN HAVE MORE THAN ONE SUBST PER LINE
+    #[allow(unused_assignments)]
     fn expand_generators(input: &str) -> Result<String, String> {
 
         let mut lines: Vec<String> = input.lines().map(|s| s.to_string()).collect();
@@ -384,7 +333,7 @@ impl Parser {
         let mut i = 0;
         let lines_len = lines.len();
         while i < lines_len {
-            let mut line_content = lines[i].trim();
+            let line_content = lines[i].trim();
             let mut chars = line_content.chars().peekable();
             let mut in_generator = false;
             let mut j: usize= 0;
@@ -673,16 +622,27 @@ impl Parser {
         self.expect("num_steps")?;
         let num_steps = self.parse_usize()?;
 
+        // Parse optional panning parameter
+        let panning = if self.current < self.tokens.len() &&
+                         !self.is_comment_start() &&
+                         self.peek() == "panning" {
+            self.expect("panning")?;
+            Some(self.parse_f32()?)
+        } else {
+            None
+        };
+
         Ok(SequenceDef {
             dur,
             tempo,
             num_steps,
+            panning,
         })
     }
 
-    fn parse_duration_type(&mut self) -> Result<DslDurationType, String> {
+    fn parse_duration_type(&mut self) -> Result<DurationType, String> {
         let token = self.advance();
-        DslDurationType::from_str(&token)
+        DurationType::from_str(&token)
     }
 
     fn parse_envelope_def(&mut self) -> Result<EnvelopeDef, String> {
@@ -985,10 +945,10 @@ impl Parser {
     fn build_track_from_block(&self, block: OuterBlock) -> Result<Track<FixedTimeNoteSequence>, String> {
         // Build FixedTimeNoteSequence
         let sequence = self.build_fixed_time_note_sequence(&block.sequence_def)?;
-        
+
         // Build TrackEffects
-        let track_effects = self.build_track_effects(&block.envelope_defs, &block.effect_defs)?;
-        
+        let track_effects = self.build_track_effects(&block.envelope_defs, &block.effect_defs, &block.sequence_def)?;
+
         // Add notes to sequence
         let mut sequence_with_notes = sequence;
         for note_decl in &block.note_declarations {
@@ -1005,26 +965,15 @@ impl Parser {
     }
 
     fn build_fixed_time_note_sequence(&self, sequence_def: &SequenceDef) -> Result<FixedTimeNoteSequence, String> {
-        let duration_type = match sequence_def.dur {
-            DslDurationType::Whole => MeterDurationType::Whole,
-            DslDurationType::Half => MeterDurationType::Half,
-            DslDurationType::Quarter => MeterDurationType::Quarter,
-            DslDurationType::Eighth => MeterDurationType::Eighth,
-            DslDurationType::Sixteenth => MeterDurationType::Sixteenth,
-            DslDurationType::ThirtySecond => MeterDurationType::ThirtySecond,
-            DslDurationType::SixtyFourth => MeterDurationType::SixtyFourth,
-            DslDurationType::Fraction(_) => MeterDurationType::Quarter, // Default fallback
-        };
-
         FixedTimeNoteSequenceBuilder::default()
-            .duration_type(duration_type)
+            .duration_type(sequence_def.dur)
             .tempo(sequence_def.tempo)
             .num_steps(sequence_def.num_steps)
             .build()
             .map_err(|e| format!("Failed to build FixedTimeNoteSequence: {:?}", e))
     }
 
-    fn build_track_effects(&self, envelope_defs: &[EnvelopeDef], effect_defs: &[EffectDef]) -> Result<TrackEffects, String> {
+    fn build_track_effects(&self, envelope_defs: &[EnvelopeDef], effect_defs: &[EffectDef], sequence_def: &SequenceDef) -> Result<TrackEffects, String> {
         let mut envelopes = Vec::new();
         let mut delays = Vec::new();
         let mut flangers = Vec::new();
@@ -1082,13 +1031,26 @@ impl Parser {
             }
         }
 
-        TrackEffectsBuilder::default()
-            .envelopes(envelopes)
-            .delays(delays)
-            .flangers(flangers)
-            .lfos(lfos)
-            .build()
-            .map_err(|e| format!("Failed to build TrackEffects: {:?}", e))
+        // Set panning and num_channels if panning is specified
+        if let Some(panning_value) = sequence_def.panning {
+            TrackEffectsBuilder::default()
+                .envelopes(envelopes)
+                .delays(delays)
+                .flangers(flangers)
+                .lfos(lfos)
+                .panning(panning_value)
+                .num_channels(2)
+                .build()
+                .map_err(|e| format!("Failed to build TrackEffects: {:?}", e))
+        } else {
+            TrackEffectsBuilder::default()
+                .envelopes(envelopes)
+                .delays(delays)
+                .flangers(flangers)
+                .lfos(lfos)
+                .build()
+                .map_err(|e| format!("Failed to build TrackEffects: {:?}", e))
+        }
     }
 
     fn build_playback_note(&self, note_decl: &NoteDeclaration, sequence_def: &SequenceDef) -> Result<PlaybackNote, String> {
@@ -1298,13 +1260,69 @@ mod tests {
 
         let result = parse_dsl(input);
         assert!(result.is_ok());
-        
+
         let track_grid = result.unwrap();
         let track = &track_grid.tracks[0];
         assert_eq!(track.effects.envelopes.len(), 1);
         assert_eq!(track.effects.delays.len(), 1);
         assert_eq!(track.effects.flangers.len(), 1);
         assert_eq!(track.effects.lfos.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_track_panning() {
+        let input = r#"
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16 panning -0.5
+            osc:sine:440.0:0.5:0
+
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16 panning 0.7
+            osc:square:880.0:0.3:4
+
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+            osc:triangle:220.0:0.4:8
+        "#;
+
+        let result = parse_dsl(input);
+        assert!(result.is_ok());
+
+        let track_grid = result.unwrap();
+        assert_eq!(track_grid.tracks.len(), 3);
+
+        // First track with left panning
+        let track1 = &track_grid.tracks[0];
+        assert_eq!(track1.effects.panning, -0.5);
+        assert_eq!(track1.effects.num_channels, 2);
+
+        // Second track with right panning
+        let track2 = &track_grid.tracks[1];
+        assert_eq!(track2.effects.panning, 0.7);
+        assert_eq!(track2.effects.num_channels, 2);
+
+        // Third track with no panning (default)
+        let track3 = &track_grid.tracks[2];
+        assert_eq!(track3.effects.panning, 0.0);
+        assert_eq!(track3.effects.num_channels, 1);
+    }
+
+    #[test]
+    fn test_parse_track_panning_keyword_required() {
+        // Test that a float after num_steps without "panning" keyword is not parsed as panning
+        let input = r#"
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+            a 0.1,0.9 d 0.4,0.6 s 0.8,0.3 r 1.0,0.0
+            osc:sine:440.0:0.5:0
+        "#;
+
+        let result = parse_dsl(input);
+        assert!(result.is_ok());
+
+        let track_grid = result.unwrap();
+        assert_eq!(track_grid.tracks.len(), 1);
+
+        // Track should have default panning (no panning specified)
+        let track = &track_grid.tracks[0];
+        assert_eq!(track.effects.panning, 0.0);
+        assert_eq!(track.effects.num_channels, 1);
     }
 
     #[test]

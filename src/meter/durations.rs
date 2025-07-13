@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use derive_builder::Builder;
 use crate::common::constants;
 
@@ -31,6 +32,30 @@ impl DurationType {
             DurationType::Sixteenth => SIXTEENTH,
             DurationType::ThirtySecond => THIRTY_SECOND,
             DurationType::SixtyFourth => SIXTY_FOURTH,
+        }
+    }
+}
+
+impl FromStr for DurationType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Whole" => Ok(DurationType::Whole),
+            "Half" => Ok(DurationType::Half),
+            "Quarter" => Ok(DurationType::Quarter),
+            "Eighth" => Ok(DurationType::Eighth),
+            "Sixteenth" => Ok(DurationType::Sixteenth),
+            "ThirtySecond" => Ok(DurationType::ThirtySecond),
+            "SixtyFourth" => Ok(DurationType::SixtyFourth),
+            "1" => Ok(DurationType::Whole),
+            "1/2" => Ok(DurationType::Half),
+            "1/4" => Ok(DurationType::Quarter),
+            "1/8" => Ok(DurationType::Eighth),
+            "1/16" => Ok(DurationType::Sixteenth),
+            "1/32" => Ok(DurationType::ThirtySecond),
+            "1/64" => Ok(DurationType::SixtyFourth),
+            _ => Err(format!("Unknown duration type: {}", s)),
         }
     }
 }

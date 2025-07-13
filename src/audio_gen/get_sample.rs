@@ -1,7 +1,8 @@
 use crate::audio_gen::oscillator;
 use crate::audio_gen::oscillator::{get_gaussian_noise_sample, OscillatorTables};
 use crate::audio_gen::oscillator::Waveform;
-use crate::common::constants::NYQUIST_FREQUENCY;  // khz samples per second
+use crate::common::constants::NYQUIST_FREQUENCY;
+// khz samples per second
 use crate::note::playback_note::{NoteType, PlaybackNote};
 
 pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &OscillatorTables,
