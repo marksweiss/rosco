@@ -1,5 +1,4 @@
 use derive_builder::Builder;
-use rand_distr::num_traits::Float;
 use crate::effect::delay::Delay;
 use crate::envelope::envelope::Envelope;
 use crate::effect::flanger::Flanger;
