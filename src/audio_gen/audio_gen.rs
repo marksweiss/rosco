@@ -139,7 +139,7 @@ where
 {
     for output_frame in output.chunks_mut(channels) {
         let (next_sample_l, next_sample_r) = next_sample();
-        output_frame[0] = T::from_sample::<f32>(next_sample_l);
-        output_frame[1] = T::from_sample::<f32>(next_sample_r);
+        output_frame[0] = T::from_sample::<f32>(next_sample_r);
+        output_frame[1] = T::from_sample::<f32>(next_sample_l);
     }
 }

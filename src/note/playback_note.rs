@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use rand_distr::num_traits::Float;
 use crate::effect::delay::Delay;
 use crate::envelope::envelope::Envelope;
 use crate::effect::flanger::Flanger;
@@ -194,19 +195,20 @@ impl PlaybackNote {
         let mut right = self.apply_effects(sample, sample_position, sample_count);
 
         // Apply both per-note and track-level panning
+        let factor = 1.0;
         if self.panning > 0.0 {
-            left *= 0.5 - self.panning;
-            right *= 0.5 + self.panning;
+            left *= factor - (factor * self.panning.cos());
+            right *= factor + (factor * self.panning.sin());
         } else if self.panning < 0.0 {
-            left *= 0.5 + self.panning;
-            right *= 0.5 - self.panning;
+            left *= factor + (factor *self.panning.cos());
+            right *= factor - (factor *self.panning.sin());
         }
         if self.track_effects.panning > 0.0 {
-            left *= 0.5 - self.track_effects.panning;
-            right *= 0.5 + self.track_effects.panning;
+            left *= factor - (factor * self.track_effects.panning.cos());
+            right *= factor + (factor * self.track_effects.panning.sin());
         } else if self.track_effects.panning < 0.0 {
-            left *= 0.5 + self.track_effects.panning;
-            right *= 0.5 - self.track_effects.panning;
+            left *= factor + (factor * self.track_effects.panning.cos());
+            right *= factor - (factor * self.track_effects.panning.sin());
         }
         
         (left, right)

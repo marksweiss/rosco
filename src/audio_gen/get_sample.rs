@@ -48,13 +48,13 @@ pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &Osc
                 1 => {
                     let mut sample = playback_note.sampled_note.next_sample();
                     sample = playback_note.apply_effects(
-                        playback_note.sampled_note.volume * sample, sample_position, sample_count);
+                        playback_note.note_volume() * sample, sample_position, sample_count);
                     (sample, sample)
                 }
                 2 => {
                     let sample = playback_note.sampled_note.next_sample();
                     playback_note.apply_effects_stereo(
-                        playback_note.note.volume * sample, sample_position, sample_count)
+                        playback_note.note_volume() * sample, sample_position, sample_count)
                 }
                 _ => (0.0, 0.0)
             }
