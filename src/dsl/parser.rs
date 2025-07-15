@@ -8,6 +8,7 @@ use crate::effect::flanger::{FlangerBuilder};
 use crate::effect::lfo::{LFOBuilder};
 use crate::envelope::envelope::{EnvelopeBuilder};
 use crate::envelope::envelope_pair::EnvelopePair;
+use crate::filter::low_pass_filter::{LowPassFilterBuilder};
 use crate::meter::durations::{DurationType};
 use crate::note::note::{NoteBuilder};
 use crate::note::playback_note::{NoteType, PlaybackNote, PlaybackNoteBuilder};
@@ -164,10 +165,19 @@ pub struct LFODef {
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
+pub struct FilterDef {
+    pub cutoff_frequency: f32,
+    pub resonance: f32,
+    pub mix: f32,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum EffectDef {
     Delay(DelayDef),
     Flanger(FlangerDef),
     LFO(LFODef),
+    Filter(FilterDef),
 }
 
 #[derive(Debug, Clone)]
@@ -681,6 +691,8 @@ impl Parser {
             self.parse_flanger_def()
         } else if self.peek() == "lfo" {
             self.parse_lfo_def()
+        } else if self.peek() == "filter" {
+            self.parse_filter_def()
         } else {
             Err(format!("Unknown effect type: {}", self.peek()))
         }
@@ -746,6 +758,24 @@ impl Parser {
             freq,
             amp,
             waveforms,
+        }))
+    }
+
+    fn parse_filter_def(&mut self) -> Result<EffectDef, String> {
+        self.skip_comment_lines();
+
+        self.expect("filter")?;
+        self.expect("cutoff_frequency")?;
+        let cutoff_frequency = self.parse_f32()?;
+        self.expect("resonance")?;
+        let resonance = self.parse_f32()?;
+        self.expect("mix")?;
+        let mix = self.parse_f32()?;
+
+        Ok(EffectDef::Filter(FilterDef {
+            cutoff_frequency,
+            resonance,
+            mix,
         }))
     }
 
@@ -875,7 +905,7 @@ impl Parser {
     }
 
     fn is_effect_start(&self) -> bool {
-        self.peek() == "delay" || self.peek() == "flanger" || self.peek() == "lfo"
+        self.peek() == "delay" || self.peek() == "flanger" || self.peek() == "lfo" || self.peek() == "filter"
     }
 
     fn is_note_declaration_start(&self) -> bool {
@@ -952,7 +982,7 @@ impl Parser {
         // Add notes to sequence
         let mut sequence_with_notes = sequence;
         for note_decl in &block.note_declarations {
-            let playback_note = self.build_playback_note(note_decl, &block.sequence_def)?;
+            let playback_note = self.build_playback_note(note_decl, &block.sequence_def, &block.effect_defs)?;
             sequence_with_notes.append_note(playback_note);
         }
 
@@ -1028,6 +1058,10 @@ impl Parser {
                         .map_err(|e| format!("Failed to build LFO: {:?}", e))?;
                     lfos.push(lfo);
                 }
+                EffectDef::Filter(_filter_def) => {
+                    // Filters are added to individual notes, not track effects
+                    // This is handled in build_playback_note
+                }
             }
         }
 
@@ -1053,10 +1087,24 @@ impl Parser {
         }
     }
 
-    fn build_playback_note(&self, note_decl: &NoteDeclaration, sequence_def: &SequenceDef) -> Result<PlaybackNote, String> {
+    fn build_playback_note(&self, note_decl: &NoteDeclaration, sequence_def: &SequenceDef, effect_defs: &[EffectDef]) -> Result<PlaybackNote, String> {
         let step_duration_ms = (60000.0 / sequence_def.tempo as f32) * sequence_def.dur.to_factor();
         let start_time_ms = note_decl.get_step_index() as f32 * step_duration_ms;
         let end_time_ms = start_time_ms + step_duration_ms;
+
+        // Build filters from effect definitions
+        let mut filters = Vec::new();
+        for effect_def in effect_defs {
+            if let EffectDef::Filter(filter_def) = effect_def {
+                let filter = LowPassFilterBuilder::default()
+                    .cutoff_frequency(filter_def.cutoff_frequency)
+                    .resonance(filter_def.resonance)
+                    .mix(filter_def.mix)
+                    .build()
+                    .map_err(|e| format!("Failed to build Filter: {:?}", e))?;
+                filters.push(filter);
+            }
+        }
 
         match note_decl {
             NoteDeclaration::Oscillator { waveforms, note_freq, volume, .. } => {
@@ -1078,6 +1126,7 @@ impl Parser {
                     .note(note)
                     .playback_start_time_ms(start_time_ms)
                     .playback_end_time_ms(end_time_ms)
+                    .filters(filters.clone())
                     .build()
                     .map_err(|e| format!("Failed to build PlaybackNote: {:?}", e))
             }
@@ -1095,6 +1144,7 @@ impl Parser {
                     .sampled_note(sampled_note)
                     .playback_start_time_ms(start_time_ms)
                     .playback_end_time_ms(end_time_ms)
+                    .filters(filters.clone())
                     .build()
                     .map_err(|e| format!("Failed to build PlaybackNote: {:?}", e))
             }
@@ -1267,6 +1317,69 @@ mod tests {
         assert_eq!(track.effects.delays.len(), 1);
         assert_eq!(track.effects.flangers.len(), 1);
         assert_eq!(track.effects.lfos.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_filter_effects() {
+        let input = r#"
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+            filter cutoff_frequency 1000.0 resonance 0.3 mix 0.8
+            osc:sine:440.0:0.5:0
+        "#;
+
+        let result = parse_dsl(input);
+        assert!(result.is_ok());
+
+        let track_grid = result.unwrap();
+        let track = &track_grid.tracks[0];
+        let sequence = &track.sequence;
+        
+        // Check that the note has a filter
+        let all_notes = sequence.get_all_notes();
+        assert_eq!(all_notes.len(), 1);
+        let note = &all_notes[0];
+        assert_eq!(note.filters.len(), 1);
+        
+        // Check filter parameters
+        let filter = &note.filters[0];
+        assert_eq!(filter.cutoff_frequency, 1000.0);
+        assert_eq!(filter.resonance, 0.3);
+        assert_eq!(filter.mix, 0.8);
+    }
+
+    #[test]
+    fn test_parse_multiple_filters() {
+        let input = r#"
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+            filter cutoff_frequency 500.0 resonance 0.2 mix 0.6
+            filter cutoff_frequency 2000.0 resonance 0.5 mix 0.4
+            osc:sine:440.0:0.5:0
+        "#;
+
+        let result = parse_dsl(input);
+        assert!(result.is_ok());
+
+        let track_grid = result.unwrap();
+        let track = &track_grid.tracks[0];
+        let sequence = &track.sequence;
+        
+        // Check that the note has multiple filters
+        let all_notes = sequence.get_all_notes();
+        assert_eq!(all_notes.len(), 1);
+        let note = &all_notes[0];
+        assert_eq!(note.filters.len(), 2);
+        
+        // Check first filter parameters
+        let filter1 = &note.filters[0];
+        assert_eq!(filter1.cutoff_frequency, 500.0);
+        assert_eq!(filter1.resonance, 0.2);
+        assert_eq!(filter1.mix, 0.6);
+        
+        // Check second filter parameters
+        let filter2 = &note.filters[1];
+        assert_eq!(filter2.cutoff_frequency, 2000.0);
+        assert_eq!(filter2.resonance, 0.5);
+        assert_eq!(filter2.mix, 0.4);
     }
 
     #[test]
@@ -1552,5 +1665,44 @@ mod tests {
         // Should have one envelope and one delay from the expanded macros
         assert_eq!(track.effects.envelopes.len(), 1);
         assert_eq!(track.effects.delays.len(), 1);
+    }
+
+    #[test]
+    fn test_macro_expansion_with_filters() {
+        let input = r#"
+            let filter1 = filter cutoff_frequency 1000.0 resonance 0.3 mix 0.8
+            let filter2 = filter cutoff_frequency 500.0 resonance 0.2 mix 0.6
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+            $filter1
+            $filter2
+            osc:sine:440.0:0.5:0
+        "#;
+
+        let result = parse_dsl(input);
+        assert!(result.is_ok());
+        
+        let track_grid = result.unwrap();
+        assert_eq!(track_grid.tracks.len(), 1);
+        
+        let track = &track_grid.tracks[0];
+        let sequence = &track.sequence;
+        
+        // Check that the note has both filters from the expanded macros
+        let all_notes = sequence.get_all_notes();
+        assert_eq!(all_notes.len(), 1);
+        let note = &all_notes[0];
+        assert_eq!(note.filters.len(), 2);
+        
+        // Check first filter parameters
+        let filter1 = &note.filters[0];
+        assert_eq!(filter1.cutoff_frequency, 1000.0);
+        assert_eq!(filter1.resonance, 0.3);
+        assert_eq!(filter1.mix, 0.8);
+        
+        // Check second filter parameters
+        let filter2 = &note.filters[1];
+        assert_eq!(filter2.cutoff_frequency, 500.0);
+        assert_eq!(filter2.resonance, 0.2);
+        assert_eq!(filter2.mix, 0.6);
     }
 } 

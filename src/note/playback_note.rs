@@ -3,6 +3,7 @@ use crate::effect::delay::Delay;
 use crate::envelope::envelope::Envelope;
 use crate::effect::flanger::Flanger;
 use crate::effect::lfo::LFO;
+use crate::filter::low_pass_filter::LowPassFilter;
 use crate::note::constants;
 use crate::note::note;
 use crate::note::note::Note;
@@ -52,6 +53,9 @@ pub(crate) struct PlaybackNote {
 
     #[builder(default = "Vec::new()")]
     pub(crate) delays: Vec<Delay>,
+
+    #[builder(default = "Vec::new()")]
+    pub(crate) filters: Vec<LowPassFilter>,
 
     #[builder(default = "no_op_effects()")]
     pub(crate) track_effects: TrackEffects,
@@ -185,6 +189,11 @@ impl PlaybackNote {
             output_sample = delay.apply_effect(output_sample, sample_position);
         }
 
+        // Apply filters before LFOs
+        for filter in self.filters.iter_mut() {
+            output_sample = filter.apply_effect(output_sample, sample_position);
+        }
+
         output_sample
     }
 
@@ -295,5 +304,13 @@ mod test_playback_note {
             .delays(vec![delay::default_delay()])
             .build().unwrap();
         assert_eq!(playback_note.delays, vec![delay::default_delay()]);
+    }
+
+    #[test]
+    fn test_playback_note_with_filters() {
+        let playback_note = PlaybackNoteBuilder::default()
+            .filters(vec![crate::filter::low_pass_filter::default_low_pass_filter()])
+            .build().unwrap();
+        assert_eq!(playback_note.filters.len(), 1);
     }
 }

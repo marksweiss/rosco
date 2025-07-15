@@ -4,9 +4,9 @@ When the script is parsed, the parser first creates a @track.rs `Vec<Track>`.
 
 The parser then processes macro substitution declarations at the top of the script, before the first `Outer Block`. These declarations use the `let` keyword to bind expressions to identifiers for later reuse. Macro names can then be referenced throughout the script using the `$` prefix syntax (e.g., `$env1`).
 
-It then reads each `Outer Block`. For each one, the parser creates a new `FixedTimeNoteSequence` and a new `TrackEffects`. The envelope and effects declared in the script are converted to their corresponding structs, `Envelope`, `Flanger`, `Delay` and `LFO`. These are passed to the builder call to create the `TrackEffects`. If a panning value is specified in the sequence definition, the `TrackEffects` panning is set to that value and the number of channels is set to 2 for stereo output. Then a Track is built, setting its sequence to the new `FixedTimeNoteSequence` and its track_effects to the new `TrackEffects`.
+It then reads each `Outer Block`. For each one, the parser creates a new `FixedTimeNoteSequence` and a new `TrackEffects`. The envelope, effects, and filters declared in the script are converted to their corresponding structs, `Envelope`, `Flanger`, `Delay`, `LFO`, and `LowPassFilter`. These are passed to the builder call to create the `TrackEffects`. If a panning value is specified in the sequence definition, the `TrackEffects` panning is set to that value and the number of channels is set to 2 for stereo output. Then a Track is built, setting its sequence to the new `FixedTimeNoteSequence` and its track_effects to the new `TrackEffects`.
 
-After this the parser processes each line defining a new note declaration, constructing a `PlaybackNote` of either type `osc` for a `Note` based on its waveforms, or of type `samp` for `SampledNote`. Each note is added to the current sequence.
+After this the parser processes each line defining a new note declaration, constructing a `PlaybackNote` of either type `osc` for a `Note` based on its waveforms, or of type `samp` for `SampledNote`. Each note is added to the current sequence with any filters that were declared in the outer block.
 
 After the last outer block, the parser constructs a `TrackGrid`, setting its tracks to the `Vec<Track>` and returns it.
 
@@ -23,6 +23,36 @@ Examples:
 - `FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16 panning -0.5` (panned left)
 - `FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16 panning 0.3` (panned slightly right)
 - `FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16` (center, mono)
+
+## Filter Effects
+
+Filters are audio processing components that modify the frequency content of audio signals. They are applied to each note in an outer block.
+
+### Low-Pass Filter
+
+The low-pass filter attenuates frequencies above the cutoff frequency, allowing lower frequencies to pass through.
+
+Syntax: `filter cutoff_frequency f32 resonance f32 mix f32`
+
+Parameters:
+- `cutoff_frequency`: The frequency in Hz where filtering begins (20Hz to 22050Hz)
+- `resonance`: Q factor controlling filter sharpness (0.0 to 1.0)
+- `mix`: Blend between original and filtered signal (0.0 = dry, 1.0 = fully filtered)
+
+Example:
+```
+FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+filter cutoff_frequency 1000.0 resonance 0.3 mix 0.8
+osc:sine:440.0:0.5:0
+```
+
+Multiple filters can be applied to the same notes:
+```
+FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+filter cutoff_frequency 500.0 resonance 0.2 mix 0.6
+filter cutoff_frequency 2000.0 resonance 0.5 mix 0.4
+osc:sine:440.0:0.5:0
+```
 
 # DSL Syntax Specification
 
@@ -42,7 +72,8 @@ COMMENT -> #.*
 DELAY -> delay mix f32 decay f32 interval_ms f32 duration_ms f32 num_repeats usize num_predelay_samples usize num_concurrent_delays uszie 
 FLANGER -> flanger window_size usize mix f32
 LFO -> lfo freq f32 amp f32 waveforms WAVEFORMS
-EFFECT_DEF -> DELAY | FLANGER | LFO
+FILTER -> filter cutoff_frequency f32 resonance f32 mix f32
+EFFECT_DEF -> DELAY | FLANGER | LFO | FILTER
 
 WESTERN_PITCH -> C | CSharp | C#| DFlat | Db | D | DSharp | D#| EFlat | Eb| E | F | FSharp | F#| GFlat | Gb | G | GSharp | G# | AFlat | Ab | A | ASharp | A#| BFlat | Bb | B
 OCTAVE -> 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8

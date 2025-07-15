@@ -302,6 +302,11 @@ impl TimeNoteSequence {
     pub(crate) fn get_notes_at(&self, index: usize) -> Vec<PlaybackNote> {
         self.sequence[index].clone()
     }
+
+    // #VisibleForTesting
+    pub(crate) fn sequence_len(&self) -> usize {
+        self.sequence.len()
+    }
 }
 
 // Custom iterator for TrackGrid over the note_windows in the grid

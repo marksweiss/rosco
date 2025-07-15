@@ -87,6 +87,17 @@ impl SetCurPosition for FixedTimeNoteSequence {
     }
 }
 
+impl FixedTimeNoteSequence {
+    /// Get all notes from the sequence (for testing purposes)
+    pub(crate) fn get_all_notes(&self) -> Vec<crate::note::playback_note::PlaybackNote> {
+        let mut all_notes = Vec::new();
+        for i in 0..self.inner_sequence.sequence_len() {
+            all_notes.extend(self.inner_sequence.get_notes_at(i));
+        }
+        all_notes
+    }
+}
+
 impl Iterator for FixedTimeNoteSequence {
     type Item = Vec<crate::note::playback_note::PlaybackNote>;
 

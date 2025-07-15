@@ -4,6 +4,7 @@ mod audio_gen;
 mod common;
 mod effect;
 mod envelope;
+mod filter;
 mod midi;
 mod note;
 mod sequence;
