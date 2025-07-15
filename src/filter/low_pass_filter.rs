@@ -151,6 +151,7 @@ impl LowPassFilter {
     }
 
     /// Reset the filter state (clear history)
+    #[allow(dead_code)]
     pub(crate) fn reset(&mut self) {
         self.x_history = [0.0; 2];
         self.y_history = [0.0; 2];
@@ -213,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_filter_coefficients_calculation() {
-        let mut filter = LowPassFilterBuilder::default()
+        let filter = LowPassFilterBuilder::default()
             .cutoff_frequency(1000.0)
             .resonance(0.0)
             .build_with_coefficients().unwrap();
@@ -226,14 +227,14 @@ mod tests {
 
     #[test]
     fn test_filter_frequency_clamping() {
-        let mut filter = LowPassFilterBuilder::default()
+        let filter = LowPassFilterBuilder::default()
             .cutoff_frequency(-100.0) // Invalid negative frequency
             .build_with_coefficients().unwrap();
         
         // Should be clamped to minimum frequency
         assert_eq!(filter.cutoff_frequency, 20.0);
         
-        let mut filter = LowPassFilterBuilder::default()
+        let filter = LowPassFilterBuilder::default()
             .cutoff_frequency(NYQUIST_FREQUENCY + 1000.0) // Invalid high frequency
             .build_with_coefficients().unwrap();
         

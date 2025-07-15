@@ -1,4 +1,4 @@
-use rand::rng;
+use rand::thread_rng;
 use rand_distr::{Distribution, Normal};
 use std::sync::Arc;
 
@@ -86,7 +86,7 @@ pub(crate) fn get_sample(table: &Vec<f32>, frequency: f32, sample_count: u64) ->
 
 pub(crate) fn get_gaussian_noise_sample() -> f32 {
     let normal = Normal::new(0.0, 1.0).unwrap();
-    let mut rng = rng();
+    let mut rng = thread_rng();
     normal.sample(&mut rng)
 }
 
