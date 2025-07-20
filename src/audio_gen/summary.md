@@ -1,4 +1,7 @@
-# Audio Generation Module
+# AUDIO GEN Module
+*Last auto-updated: 2025-07-19 21:57:08*
+*This summary was automatically updated due to source file changes in this commit.*
+
 
 ## Purpose
 Provides core audio synthesis and generation capabilities for the Rosco toolkit. This module handles oscillator-based sound generation and audio sample processing.
