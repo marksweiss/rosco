@@ -30,3 +30,24 @@ Understand each module's responsibilities and avoid creating inappropriate depen
 Run relevant tests after making changes to ensure functionality is preserved:
 - `cargo test` for general testing
 - `cargo test [module_name]::tests` for module-specific tests
+
+## Automated Systems
+
+### Pre-commit Hook: Summary File Updates
+A pre-commit hook automatically updates `summary.md` files when source files in their respective modules change:
+
+**Functionality:**
+- Monitors staged files during commits for changes in `src/[module_name]/` directories
+- Automatically updates the corresponding `src/[module_name]/summary.md` file with:
+  - Current timestamp
+  - Note indicating automatic update due to source changes
+- Re-stages the updated summary file as part of the commit
+
+**Location:** `.git/hooks/pre-commit`
+
+**Behavior:**
+- Only triggers when source files (not summary.md itself) are modified
+- Preserves original summary content while adding update metadata
+- Provides console feedback about which modules were updated
+
+This ensures summary files stay current with code changes without manual intervention.
