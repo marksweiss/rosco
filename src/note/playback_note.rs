@@ -20,7 +20,7 @@ pub (crate) enum NoteType {
 }
 
 #[derive(Builder, Clone, Debug, PartialEq)]
-pub(crate) struct PlaybackNote {
+pub struct PlaybackNote {
 
     #[builder(default = "NoteType::Oscillator")]
     pub(crate) note_type: NoteType,

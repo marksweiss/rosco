@@ -8,7 +8,7 @@ static DEFAULT_TRACK_VOLUME: f32 = 1.0;
 
 #[allow(dead_code)]
 #[derive(Builder, Clone, Debug)]
-pub(crate) struct Track<SequenceType> {
+pub struct Track<SequenceType> {
     #[builder(default = "NO_TRACK")]
     pub(crate) num: i16,
 

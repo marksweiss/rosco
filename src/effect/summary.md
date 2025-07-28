@@ -1,4 +1,7 @@
-# Effects Module
+# EFFECT Module
+*Last auto-updated: 2025-07-28 00:17:35*
+*This summary was automatically updated due to source file changes in this commit.*
+
 
 ## Purpose
 Implements audio effects processing capabilities for the Rosco toolkit. This module provides various time-based and modulation effects that can be applied to tracks.

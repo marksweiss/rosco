@@ -3,6 +3,7 @@ Cargo.lock
 .DS_Store
 .idea/
 
+*.swp
 # Vendored tools (for direct clones - not needed for submodules but kept for reference)
 /tools/*/.git
 /tools/vendor/

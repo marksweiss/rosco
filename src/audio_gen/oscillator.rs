@@ -9,13 +9,14 @@ static NUM_TABLE_SAMPLES: usize = 1024;
 static SAMPLE_COUNT_FACTOR: f32 = SAMPLE_RATE / NUM_TABLE_SAMPLES as f32;
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Hash, PartialEq)]
-pub(crate) enum Waveform {
+#[derive(Clone, Copy, Debug, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum Waveform {
     GaussianNoise,
     Saw,
     Sine,
     Square,
     Triangle,
+    Noise, // Add alias for consistency with TUI
 }
 
 #[derive(Clone, Debug, PartialEq)]

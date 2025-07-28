@@ -19,6 +19,7 @@ pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &Osc
             for waveform in playback_note.note.waveforms.clone() {
                 sample += match waveform {
                     Waveform::GaussianNoise => get_gaussian_noise_sample(),
+                    Waveform::Noise => get_gaussian_noise_sample(), // Alias for GaussianNoise
                     Waveform::Saw => oscillator::get_sample(
                         &osc_tables.saw_table, playback_note.note.frequency, sample_count),
                     Waveform::Sine => oscillator::get_sample(

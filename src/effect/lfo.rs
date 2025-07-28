@@ -50,6 +50,7 @@ impl LFO {
         for waveform in self.waveforms.clone() {
             sample += match waveform {
                 Waveform::GaussianNoise => get_gaussian_noise_sample(),
+                Waveform::Noise => get_gaussian_noise_sample(), // Alias for GaussianNoise
                 Waveform::Saw => get_sample(&self.oscillator_tables.saw_table,
                                             self.frequency, sample_count),
                 Waveform::Sine => get_sample(&self.oscillator_tables.sine_table,

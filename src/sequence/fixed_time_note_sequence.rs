@@ -5,7 +5,7 @@ use crate::sequence::note_sequence_trait::{AppendNote, BuilderWrapper, NextNotes
 
 #[allow(dead_code)]
 #[derive(Builder, Clone, Debug)]
-pub(crate) struct FixedTimeNoteSequence {
+pub struct FixedTimeNoteSequence {
     #[builder(default)]
     inner_sequence: TimeNoteSequence,
     
