@@ -359,7 +359,7 @@ impl Widget for SequencerGrid {
         };
         
         // Calculate layout areas
-        let control_width = 30;
+        let control_width = 80; // Increased to accommodate 3x wider display
         let step_area_width = area.width.saturating_sub(control_width);
         
         // Render track rows
@@ -453,29 +453,42 @@ impl SequencerGrid {
         let is_track_focused = self.cursor.track == track_idx && 
                               self.cursor.focus_area == CursorFocus::TrackControls;
         
-        // Volume control
+        // Volume control with improved display
         let vol_style = if is_track_focused && track.selected_control == TrackControl::Volume {
             Style::default().fg(Color::Yellow).bg(Color::DarkGray)
         } else {
             base_style
         };
-        let vol_bars = (track.volume * 8.0) as usize;
-        let vol_display = "█".repeat(vol_bars) + &"░".repeat(8 - vol_bars);
-        buf.set_string(x, y, &format!("V:{}", vol_display), vol_style);
         
-        // Pan control
+        // Volume display with percentage and visual scale
+        let vol_percent = (track.volume * 100.0) as u8;
+        let vol_bars = (track.volume * 15.0) as usize; // Use 15 blocks (3x wider)
+        let vol_filled = "█".repeat(vol_bars);
+        let vol_empty = "░".repeat(15 - vol_bars);
+        let vol_display = format!("V:{}{} {}%", vol_filled, vol_empty, vol_percent);
+        buf.set_string(x, y, &vol_display, vol_style);
+        
+        // Pan control with improved display
         let pan_style = if is_track_focused && track.selected_control == TrackControl::Pan {
             Style::default().fg(Color::Yellow).bg(Color::DarkGray)
         } else {
             base_style
         };
-        let pan_pos = ((track.pan + 1.0) * 4.0) as usize;
-        let mut pan_display: Vec<char> = "░".repeat(8).chars().collect();
-        if pan_pos < 8 {
-            pan_display[pan_pos] = '█';
+        
+        // Pan display with center indicator and position
+        let pan_percent = (track.pan * 100.0) as i8;
+        let pan_pos = ((track.pan + 1.0) * 7.5) as usize; // Use 15 positions (0-14)
+        let mut pan_display: Vec<char> = "░".repeat(15).chars().collect();
+        
+        // Mark center position with a different character
+        pan_display[7] = '│'; // Center marker (position 7 out of 15)
+        if pan_pos < 15 {
+            pan_display[pan_pos] = '█'; // Current position
         }
+        
         let pan_display: String = pan_display.into_iter().collect();
-        buf.set_string(x, y.saturating_add(1), &format!("P:{}", pan_display), pan_style);
+        let pan_text = format!("P:{} {:+}%", pan_display, pan_percent);
+        buf.set_string(x, y.saturating_add(1), &pan_text, pan_style);
         
         // Mute/Solo buttons
         let mute_style = if is_track_focused && track.selected_control == TrackControl::Mute {
