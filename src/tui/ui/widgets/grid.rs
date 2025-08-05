@@ -21,7 +21,7 @@ pub struct SequencerGrid {
 pub struct TrackStrip {
     pub track_number: u8,
     pub volume: f32,
-    pub pan: f32,
+    pub pan: f32,  // Single pan control (-1.0 to +1.0)
     pub mute: bool,
     pub solo: bool,
     pub steps: Vec<StepCell>,
@@ -468,14 +468,14 @@ impl SequencerGrid {
         let vol_display = format!("V:{}{} {}%", vol_filled, vol_empty, vol_percent);
         buf.set_string(x, y, &vol_display, vol_style);
         
-        // Pan control with improved display
+        // Pan control with L/R labels and slider
         let pan_style = if is_track_focused && track.selected_control == TrackControl::Pan {
             Style::default().fg(Color::Yellow).bg(Color::DarkGray)
         } else {
             base_style
         };
         
-        // Pan display with center indicator and position
+        // Pan display with L/R labels and slider
         let pan_percent = (track.pan * 100.0) as i8;
         let pan_pos = ((track.pan + 1.0) * 7.5) as usize; // Use 15 positions (0-14)
         let mut pan_display: Vec<char> = "░".repeat(15).chars().collect();
@@ -487,8 +487,8 @@ impl SequencerGrid {
         }
         
         let pan_display: String = pan_display.into_iter().collect();
-        let pan_text = format!("P:{} {:+}%", pan_display, pan_percent);
-        buf.set_string(x, y.saturating_add(1), &pan_text, pan_style);
+        let pan_text = format!("L{}R {:+}%", pan_display, pan_percent);
+        buf.set_string(x + 25, y, &pan_text, pan_style);
         
         // Mute/Solo buttons
         let mute_style = if is_track_focused && track.selected_control == TrackControl::Mute {
@@ -507,8 +507,8 @@ impl SequencerGrid {
             base_style
         };
         
-        buf.set_string(x, y.saturating_add(2), "│M││S│", base_style);
-        buf.set_string(x + 1, y.saturating_add(2), if track.mute { "M" } else { " " }, mute_style);
-        buf.set_string(x + 4, y.saturating_add(2), if track.solo { "S" } else { " " }, solo_style);
+        buf.set_string(x, y.saturating_add(1), "│M││S│", base_style);
+        buf.set_string(x + 1, y.saturating_add(1), if track.mute { "M" } else { " " }, mute_style);
+        buf.set_string(x + 4, y.saturating_add(1), if track.solo { "S" } else { " " }, solo_style);
     }
 }

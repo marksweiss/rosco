@@ -12,13 +12,13 @@ pub struct TrackBridge {
 pub struct TrackData {
     pub track_number: u8,
     pub volume: f32,
-    pub pan: f32,
+    pub pan: f32,  // Single pan control (-1.0 to +1.0)
     pub mute: bool,
     pub solo: bool,
     pub steps: Vec<StepCell>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum TrackUpdate {
     Volume(f32),
     Pan(f32),
