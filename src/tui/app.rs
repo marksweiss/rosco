@@ -5,7 +5,7 @@ use crate::track::Track;
 use crate::sequence::FixedTimeNoteSequence;
 
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent},
+    event::{self, Event, KeyCode, KeyEvent},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -229,6 +229,8 @@ pub struct TransportState {
     pub tempo: f32,
     pub position: PlaybackPosition,
     pub focused_button: TransportButton,
+    pub current_step: usize, // 0-15 for 16 steps
+    pub last_step_time: std::time::Instant,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -245,6 +247,8 @@ impl Default for TransportState {
             tempo: 120.0,
             position: PlaybackPosition::default(),
             focused_button: TransportButton::Play,
+            current_step: 0,
+            last_step_time: std::time::Instant::now(),
         }
     }
 }
@@ -329,6 +333,9 @@ impl RoscoTuiApp {
     
     async fn run_app<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TuiError> {
         loop {
+            // Update transport timing
+            self.update_transport_timing();
+            
             terminal.draw(|f| self.update_ui(f))?;
             
             if self.handle_events().await? {
@@ -336,6 +343,27 @@ impl RoscoTuiApp {
             }
         }
         Ok(())
+    }
+    
+    fn update_transport_timing(&mut self) {
+        if self.transport.is_playing {
+            let now = std::time::Instant::now();
+            let elapsed = now.duration_since(self.transport.last_step_time);
+            
+            // Calculate step interval from tempo: 60 seconds / BPM / 4 (16th notes)
+            // For 120 BPM: 60/120/4 = 0.125 seconds per 16th note
+            // But user wants full beat timing, so 60/120 = 0.5 seconds per beat
+            let step_interval = std::time::Duration::from_secs_f32(60.0 / self.transport.tempo);
+            
+            if elapsed >= step_interval {
+                // Advance to next step (1-16, wrapping)
+                self.transport.current_step = (self.transport.current_step + 1) % 16;
+                self.transport.last_step_time = now;
+                
+                // Update the sequencer grid's playing step for highlighting
+                self.sequencer_panel.grid.set_playing_step(Some(self.transport.current_step));
+            }
+        }
     }
     
     async fn handle_events(&mut self) -> Result<bool, TuiError> {
@@ -584,12 +612,15 @@ impl RoscoTuiApp {
                 match self.transport.focused_button {
                     TransportButton::Play => {
                         self.transport.is_playing = true;
+                        self.transport.last_step_time = std::time::Instant::now();
                         self.ui_state.status_message = Some("Playing".to_string());
                         let transport_cmd = crate::tui::audio_bridge::ParameterUpdate::TransportPlay;
                         self.send_parameter_update_real_time(transport_cmd)?;
                     }
                     TransportButton::Stop => {
                         self.transport.is_playing = false;
+                        // Keep the current step position highlighted when stopped
+                        // The grid will continue to show the green highlight on the current step
                         self.ui_state.status_message = Some("Stopped".to_string());
                         let transport_cmd = crate::tui::audio_bridge::ParameterUpdate::TransportStop;
                         self.send_parameter_update_real_time(transport_cmd)?;
