@@ -228,6 +228,13 @@ pub struct TransportState {
     pub is_recording: bool,
     pub tempo: f32,
     pub position: PlaybackPosition,
+    pub focused_button: TransportButton,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TransportButton {
+    Play,
+    Stop,
 }
 
 impl Default for TransportState {
@@ -237,6 +244,7 @@ impl Default for TransportState {
             is_recording: false,
             tempo: 120.0,
             position: PlaybackPosition::default(),
+            focused_button: TransportButton::Play,
         }
     }
 }
@@ -382,6 +390,10 @@ impl RoscoTuiApp {
                 self.current_focus = FocusArea::TrackPanning;
                 self.ui_state.status_message = Some("Track Panning section".to_string());
             }
+            KeyCode::Char('8') => {
+                self.current_focus = FocusArea::Transport;
+                self.ui_state.status_message = Some("Transport section".to_string());
+            }
             // Fine adjustment with +/- keys
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 if let FocusArea::Synthesizer(SynthSection::Oscillator) = &self.current_focus {
@@ -463,7 +475,7 @@ impl RoscoTuiApp {
                 self.handle_track_panning_navigation(key_event)?;
             }
             FocusArea::Transport => {
-                // TODO: Handle transport navigation
+                self.handle_transport_navigation(key_event)?;
             }
         }
         Ok(())
@@ -551,20 +563,38 @@ impl RoscoTuiApp {
         Ok(())
     }
     
+    fn handle_transport_navigation(&mut self, key_event: KeyEvent) -> Result<(), TuiError> {
+        match key_event.code {
+            KeyCode::Left => {
+                self.transport.focused_button = TransportButton::Play;
+                self.ui_state.status_message = Some("Play button focused".to_string());
+            }
+            KeyCode::Right => {
+                self.transport.focused_button = TransportButton::Stop;
+                self.ui_state.status_message = Some("Stop button focused".to_string());
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    
     fn handle_activation(&mut self) -> Result<(), TuiError> {
         match &self.current_focus {
             FocusArea::Transport => {
-                self.transport.is_playing = !self.transport.is_playing;
-                let status_msg = if self.transport.is_playing { "Playing" } else { "Stopped" };
-                self.ui_state.status_message = Some(status_msg.to_string());
-                
-                // Send transport command to audio bridge
-                let transport_cmd = if self.transport.is_playing {
-                    crate::tui::audio_bridge::ParameterUpdate::TransportPlay
-                } else {
-                    crate::tui::audio_bridge::ParameterUpdate::TransportStop
-                };
-                self.send_parameter_update_real_time(transport_cmd)?;
+                match self.transport.focused_button {
+                    TransportButton::Play => {
+                        self.transport.is_playing = true;
+                        self.ui_state.status_message = Some("Playing".to_string());
+                        let transport_cmd = crate::tui::audio_bridge::ParameterUpdate::TransportPlay;
+                        self.send_parameter_update_real_time(transport_cmd)?;
+                    }
+                    TransportButton::Stop => {
+                        self.transport.is_playing = false;
+                        self.ui_state.status_message = Some("Stopped".to_string());
+                        let transport_cmd = crate::tui::audio_bridge::ParameterUpdate::TransportStop;
+                        self.send_parameter_update_real_time(transport_cmd)?;
+                    }
+                }
             }
             FocusArea::Sequencer => {
                 // Handle Enter/Space in sequencer by creating a fake key event
@@ -1055,8 +1085,8 @@ impl RoscoTuiApp {
     
     fn render_transport(&self, frame: &mut Frame, area: Rect) {
         let title = match &self.current_focus {
-            FocusArea::Transport => "TRANSPORT [FOCUSED]",
-            _ => "TRANSPORT",
+            FocusArea::Transport => "8 - TRANSPORT [FOCUSED]",
+            _ => "8 - TRANSPORT",
         };
         
         let block = Block::default()
@@ -1066,10 +1096,29 @@ impl RoscoTuiApp {
         let inner = block.inner(area);
         frame.render_widget(block, area);
         
-        let play_symbol = if self.transport.is_playing { "■" } else { "▶" };
+        // Create Play and Stop buttons with focus indication
+        let focused_transport = matches!(self.current_focus, FocusArea::Transport);
+        
+        let play_button = if focused_transport && self.transport.focused_button == TransportButton::Play {
+            if self.transport.is_playing { "►[▶]◄" } else { "►[▶]◄" }
+        } else if self.transport.is_playing {
+            "[▶]"
+        } else {
+            " ▶ "
+        };
+        
+        let stop_button = if focused_transport && self.transport.focused_button == TransportButton::Stop {
+            if !self.transport.is_playing { "►[■]◄" } else { "►[■]◄" }
+        } else if !self.transport.is_playing {
+            "[■]"
+        } else {
+            " ■ "
+        };
+        
         let content = format!(
-            "{} ● ●   Tempo: {:.0} BPM   Position: {}.{}.{}",
-            play_symbol,
+            "{} {}   Tempo: {:.0} BPM   Position: {}.{}.{}",
+            play_button,
+            stop_button,
             self.transport.tempo,
             self.transport.position.measure,
             self.transport.position.beat,
@@ -1103,7 +1152,7 @@ impl RoscoTuiApp {
         };
         
         let content = format!(
-            "{} | {} | 1-7:Sections +/-:Adjust R:Reset F1:Help ESC:Quit",
+            "{} | {} | 1-8:Sections +/-:Adjust R:Reset F1:Help ESC:Quit",
             status_msg,
             current_section_info
         );
@@ -1123,7 +1172,7 @@ NAVIGATION:
   ESC        - Quit application
 
 SYNTHESIZER CONTROLS:
-  1-7        - Quick switch to Osc/Filter/Env/FX/Grid/Volume/Panning sections
+  1-8        - Quick switch to Osc/Filter/Env/FX/Grid/Volume/Panning/Transport sections
   Up/Down    - Navigate between controls in section
   Left/Right - Adjust parameter values
   +/-        - Fine adjustment (Freq: ±0.1Hz, Vol: ±1%)
@@ -1134,8 +1183,9 @@ OSCILLATOR SECTION:
   Frequency  - Left/Right: 20 Hz - 20 kHz (logarithmic)
   Volume     - Left/Right: 0% - 100% (linear)
 
-TRANSPORT:
-  Enter/Space - Play/Stop toggle
+TRANSPORT (8):
+  Left/Right - Navigate between Play ▶ and Stop ■ buttons
+  Enter/Space - Activate focused button (►[▶]◄ shows focus)
 
 TRACK GRID (5):
   Tab        - Cycle: Steps → Frequency
