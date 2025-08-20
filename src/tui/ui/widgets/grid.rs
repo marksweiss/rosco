@@ -91,11 +91,16 @@ impl SequencerGrid {
         match self.cursor.focus_area {
             CursorFocus::Steps => {
                 if track_delta != 0 {
-                    // Up/Down in Steps mode: switch between Steps and Frequency rows
                     if track_delta > 0 {
+                        // Down arrow: move to frequency row of same track
                         self.cursor.focus_area = CursorFocus::Frequency;
+                    } else {
+                        // Up arrow: move to previous track's frequency row
+                        if self.cursor.track > 0 {
+                            self.cursor.track -= 1;
+                            self.cursor.focus_area = CursorFocus::Frequency;
+                        }
                     }
-                    // Can't go up from Steps row
                 } else if step_delta != 0 {
                     // Left/Right in Steps mode: navigate steps
                     let new_step = (self.cursor.step as i8 + step_delta)
@@ -105,11 +110,16 @@ impl SequencerGrid {
             }
             CursorFocus::Frequency => {
                 if track_delta != 0 {
-                    // Up/Down in Frequency mode: switch between Frequency and Steps rows
                     if track_delta < 0 {
+                        // Up arrow: move to steps row of same track
                         self.cursor.focus_area = CursorFocus::Steps;
+                    } else {
+                        // Down arrow: move to next track's steps row
+                        if self.cursor.track < 7 {
+                            self.cursor.track += 1;
+                            self.cursor.focus_area = CursorFocus::Steps;
+                        }
                     }
-                    // Can't go down from Frequency row
                 } else if step_delta != 0 {
                     // Left/Right in Frequency mode: navigate steps
                     let new_step = (self.cursor.step as i8 + step_delta)
@@ -369,18 +379,7 @@ impl SequencerGrid {
 
 impl TrackStrip {
     pub fn new(track_number: u8, steps: usize) -> Self {
-        let mut track_steps = vec![StepCell::default(); steps];
-        
-        // Enable a few steps by default to show the grid working
-        if steps > 0 {
-            track_steps[0].enabled = true; // Enable first step
-        }
-        if steps > 4 {
-            track_steps[4].enabled = true; // Enable fifth step
-        }
-        if steps > 8 {
-            track_steps[8].enabled = true; // Enable ninth step
-        }
+        let track_steps = vec![StepCell::default(); steps];
         
         Self {
             track_number,
