@@ -13,15 +13,144 @@ use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, Borders, Clear, Paragraph},
-    Frame, Terminal,
+    widgets::{Block, Borders, Clear, Paragraph, Widget},
+    Frame, Terminal, buffer::Buffer,
 };
 use std::io;
+
+// Custom widget to render only the grid part without controls
+struct GridOnlyWidget {
+    grid: crate::tui::ui::widgets::SequencerGrid,
+}
+
+impl Widget for GridOnlyWidget {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let style = if self.grid.focused {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        
+        // Render track rows (each track takes 2 rows: steps + frequency)
+        for (track_idx, track) in self.grid.tracks.iter().enumerate() {
+            let y_steps = area.y + (track_idx * 2) as u16;
+            let y_freq = y_steps + 1;
+            
+            // Stop if we don't have room for both rows of this track
+            if y_freq >= area.y + area.height.saturating_sub(1) {
+                break;
+            }
+            
+            let x = area.x;
+            
+            // Track number (spans both rows)
+            let track_style = if self.grid.cursor.track == track_idx as u8 {
+                Style::default().fg(Color::Yellow)
+            } else {
+                style
+            };
+            buf.set_string(x, y_steps, &format!("{}", track.track_number), track_style);
+            let mut step_x = x + 2;
+            
+            // Step cells - show as many steps as will fit, up to 16
+            let max_steps = ((area.width.saturating_sub(2)) / 4) as usize; // 4 chars per step
+            let visible_steps = self.grid.steps_per_track.min(max_steps);
+            
+            for step_idx in 0..visible_steps {
+                if step_idx >= track.steps.len() {
+                    break;
+                }
+                
+                let step = &track.steps[step_idx];
+                let is_step_cursor = self.grid.cursor.track == track_idx as u8 && 
+                                   self.grid.cursor.step == step_idx as u8 &&
+                                   self.grid.cursor.focus_area == crate::tui::ui::widgets::CursorFocus::Steps;
+                let is_freq_cursor = self.grid.cursor.track == track_idx as u8 && 
+                                   self.grid.cursor.step == step_idx as u8 &&
+                                   self.grid.cursor.focus_area == crate::tui::ui::widgets::CursorFocus::Frequency;
+                let is_freq_dropdown = self.grid.cursor.track == track_idx as u8 && 
+                                      self.grid.cursor.step == step_idx as u8 &&
+                                      self.grid.cursor.focus_area == crate::tui::ui::widgets::CursorFocus::FrequencyDropdown;
+                let is_playing = self.grid.playing_step == Some(step_idx);
+                
+                // Step cell style
+                let step_style = if is_step_cursor {
+                    Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+                } else if is_playing {
+                    Style::default().fg(Color::Green).bg(Color::Black)
+                } else {
+                    style
+                };
+                
+                // Frequency cell style  
+                let freq_style = if is_freq_dropdown {
+                    Style::default().fg(Color::Rgb(255, 255, 0)).bg(Color::Rgb(0, 0, 255)) // Bright yellow on blue for dropdown
+                } else if is_freq_cursor {
+                    Style::default().fg(Color::Rgb(0, 255, 0)).bg(Color::Black) // Pure bright green on black for maximum contrast
+                } else if is_playing {
+                    Style::default().fg(Color::Green).bg(Color::Black)
+                } else {
+                    Style::default().fg(Color::LightGreen)
+                };
+                
+                // Render step cell
+                let symbol = if step.enabled { "●" } else { "·" };
+                buf.set_string(step_x, y_steps, &format!(" {} ", symbol), step_style);
+                
+                // Render frequency cell - match the step cell format for alignment
+                let freq_text = if step.enabled {
+                    if is_freq_dropdown {
+                        // Show active dropdown with special indicators
+                        format!("▼{}▲", step.frequency)
+                    } else if is_freq_cursor {
+                        // Show selectable frequency with brackets
+                        format!("[{}]", step.frequency)
+                    } else {
+                        format!(" {} ", step.frequency)
+                    }
+                } else {
+                    " · ".to_string()
+                };
+                buf.set_string(step_x, y_freq, &freq_text, freq_style);
+                
+                step_x += 4;
+            }
+        }
+        
+        // Render step numbers at bottom
+        let mut rendered_tracks = 0;
+        for track_idx in 0..self.grid.tracks.len() {
+            let y_steps = area.y + (track_idx * 2) as u16;
+            let y_freq = y_steps + 1;
+            
+            if y_freq >= area.y + area.height.saturating_sub(1) {
+                break;
+            }
+            rendered_tracks += 1;
+        }
+        
+        // Only render step numbers if there's space
+        let step_numbers_y = area.y + (rendered_tracks * 2) as u16;
+        if step_numbers_y < area.y + area.height {
+            let mut x = area.x + 2; // Offset for track numbers
+            
+            let max_steps = ((area.width.saturating_sub(2)) / 4) as usize;
+            let visible_steps = self.grid.steps_per_track.min(max_steps);
+            
+            for step in 1..=visible_steps {
+                buf.set_string(x, step_numbers_y, &format!("{:^4}", step), style);
+                x += 4;
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FocusArea {
     Synthesizer(SynthSection),
     Sequencer,
+    TrackVolume,
+    TrackPanning,
     Transport,
 }
 
@@ -245,6 +374,14 @@ impl RoscoTuiApp {
                 self.current_focus = FocusArea::Sequencer;
                 self.ui_state.status_message = Some("Track Sequencer section".to_string());
             }
+            KeyCode::Char('6') => {
+                self.current_focus = FocusArea::TrackVolume;
+                self.ui_state.status_message = Some("Track Volume section".to_string());
+            }
+            KeyCode::Char('7') => {
+                self.current_focus = FocusArea::TrackPanning;
+                self.ui_state.status_message = Some("Track Panning section".to_string());
+            }
             // Fine adjustment with +/- keys
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 if let FocusArea::Synthesizer(SynthSection::Oscillator) = &self.current_focus {
@@ -303,7 +440,9 @@ impl RoscoTuiApp {
             FocusArea::Synthesizer(SynthSection::Filter) => FocusArea::Synthesizer(SynthSection::Envelope),
             FocusArea::Synthesizer(SynthSection::Envelope) => FocusArea::Synthesizer(SynthSection::Effects),
             FocusArea::Synthesizer(SynthSection::Effects) => FocusArea::Sequencer,
-            FocusArea::Sequencer => FocusArea::Transport,
+            FocusArea::Sequencer => FocusArea::TrackVolume,
+            FocusArea::TrackVolume => FocusArea::TrackPanning,
+            FocusArea::TrackPanning => FocusArea::Transport,
             FocusArea::Transport => FocusArea::Synthesizer(SynthSection::Oscillator),
         };
     }
@@ -316,6 +455,12 @@ impl RoscoTuiApp {
             FocusArea::Sequencer => {
                 let actions = self.sequencer_panel.handle_key_event(key_event);
                 self.process_sequencer_actions(actions)?;
+            }
+            FocusArea::TrackVolume => {
+                self.handle_track_volume_navigation(key_event)?;
+            }
+            FocusArea::TrackPanning => {
+                self.handle_track_panning_navigation(key_event)?;
             }
             FocusArea::Transport => {
                 // TODO: Handle transport navigation
@@ -348,6 +493,60 @@ impl RoscoTuiApp {
             _ => {
                 // TODO: Handle other synthesizer sections
             }
+        }
+        Ok(())
+    }
+    
+    fn handle_track_volume_navigation(&mut self, key_event: KeyEvent) -> Result<(), TuiError> {
+        match key_event.code {
+            KeyCode::Up | KeyCode::Down => {
+                // Navigate between tracks
+                let track_delta = if key_event.code == KeyCode::Down { 1 } else { -1 };
+                let new_track = (self.sequencer_panel.grid.cursor.track as i8 + track_delta)
+                    .clamp(0, 7) as u8;
+                self.sequencer_panel.grid.cursor.track = new_track;
+                // Set focus to track controls and specifically to volume
+                self.sequencer_panel.grid.cursor.focus_area = crate::tui::ui::widgets::CursorFocus::TrackControls;
+                let track = &mut self.sequencer_panel.grid.tracks[new_track as usize];
+                track.selected_control = crate::tui::ui::widgets::TrackControl::Volume;
+            }
+            KeyCode::Left | KeyCode::Right => {
+                // Adjust volume for the current track
+                let delta = if key_event.code == KeyCode::Right { 0.05 } else { -0.05 };
+                let track_idx = self.sequencer_panel.grid.cursor.track;
+                let track = &mut self.sequencer_panel.grid.tracks[track_idx as usize];
+                track.adjust_volume(delta);
+                self.ui_state.status_message = Some(format!("Track {} Volume: {:.0}%", 
+                    track.track_number, track.volume * 100.0));
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    
+    fn handle_track_panning_navigation(&mut self, key_event: KeyEvent) -> Result<(), TuiError> {
+        match key_event.code {
+            KeyCode::Up | KeyCode::Down => {
+                // Navigate between tracks
+                let track_delta = if key_event.code == KeyCode::Down { 1 } else { -1 };
+                let new_track = (self.sequencer_panel.grid.cursor.track as i8 + track_delta)
+                    .clamp(0, 7) as u8;
+                self.sequencer_panel.grid.cursor.track = new_track;
+                // Set focus to track controls and specifically to panning
+                self.sequencer_panel.grid.cursor.focus_area = crate::tui::ui::widgets::CursorFocus::TrackControls;
+                let track = &mut self.sequencer_panel.grid.tracks[new_track as usize];
+                track.selected_control = crate::tui::ui::widgets::TrackControl::Pan;
+            }
+            KeyCode::Left | KeyCode::Right => {
+                // Adjust panning for the current track
+                let delta = if key_event.code == KeyCode::Right { 0.1 } else { -0.1 };
+                let track_idx = self.sequencer_panel.grid.cursor.track;
+                let track = &mut self.sequencer_panel.grid.tracks[track_idx as usize];
+                track.adjust_pan(delta);
+                self.ui_state.status_message = Some(format!("Track {} Pan: {:.1}", 
+                    track.track_number, track.pan));
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -542,7 +741,7 @@ impl RoscoTuiApp {
             .split(size);
         
         self.render_synthesizer(frame, chunks[0]);
-        self.render_sequencer(frame, chunks[1]);
+        self.render_sequencer_sections(frame, chunks[1]);
         self.render_status_bar(frame, chunks[2]);
     }
     
@@ -652,10 +851,59 @@ impl RoscoTuiApp {
         frame.render_widget(paragraph, inner);
     }
     
-    fn render_sequencer(&mut self, frame: &mut Frame, area: Rect) {
+    fn render_sequencer_sections(&mut self, frame: &mut Frame, area: Rect) {
+        // Split into three sections: grid, volume controls, panning controls, and transport
+        let sections = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(50), // Track grid section
+                Constraint::Percentage(25), // Volume controls section
+                Constraint::Percentage(25), // Panning controls section
+            ])
+            .split(area);
+        
+        // Each section needs to be split vertically to include transport at bottom
+        let grid_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(20), // Grid area
+                Constraint::Length(3), // Transport
+            ])
+            .split(sections[0]);
+            
+        let volume_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(20), // Volume controls
+                Constraint::Length(3), // Empty space for alignment
+            ])
+            .split(sections[1]);
+            
+        let pan_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(20), // Pan controls
+                Constraint::Length(3), // Empty space for alignment
+            ])
+            .split(sections[2]);
+        
+        // Render section 5: Track Grid
+        self.render_track_grid_section(frame, grid_chunks[0]);
+        
+        // Render section 6: Volume Controls
+        self.render_track_volume_section(frame, volume_chunks[0]);
+        
+        // Render section 7: Panning Controls
+        self.render_track_panning_section(frame, pan_chunks[0]);
+        
+        // Render transport only once in the grid section
+        self.render_transport(frame, grid_chunks[1]);
+    }
+    
+    fn render_track_grid_section(&mut self, frame: &mut Frame, area: Rect) {
         let title = match &self.current_focus {
-            FocusArea::Sequencer => "5 - TRACK SEQUENCER [FOCUSED]",
-            _ => "5 - TRACK SEQUENCER",
+            FocusArea::Sequencer => "5 - TRACK GRID [FOCUSED]",
+            _ => "5 - TRACK GRID",
         };
         
         let block = Block::default()
@@ -665,23 +913,144 @@ impl RoscoTuiApp {
         let inner = block.inner(area);
         frame.render_widget(block, area);
         
-        // Split sequencer: grid + transport
-        let seq_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(inner.height.saturating_sub(4)), // Give most space to grid
-                Constraint::Min(3),  // Transport
-            ])
-            .split(inner);
-        
-        self.render_sequencer_grid(frame, seq_chunks[0]);
-        self.render_transport(frame, seq_chunks[1]);
-    }
-    
-    fn render_sequencer_grid(&mut self, frame: &mut Frame, area: Rect) {
         let focused = matches!(self.current_focus, FocusArea::Sequencer);
         self.sequencer_panel.grid.focused = focused;
-        frame.render_widget(self.sequencer_panel.grid.clone(), area);
+        
+        // Render only the grid part without volume/pan controls
+        self.render_sequencer_grid_only(frame, inner);
+    }
+    
+    fn render_track_volume_section(&mut self, frame: &mut Frame, area: Rect) {
+        let title = match &self.current_focus {
+            FocusArea::TrackVolume => "6 - TRACK VOLUME [FOCUSED]",
+            _ => "6 - TRACK VOLUME",
+        };
+        
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL);
+        
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        
+        let focused = matches!(self.current_focus, FocusArea::TrackVolume);
+        self.render_volume_controls_only(frame, inner, focused);
+    }
+    
+    fn render_track_panning_section(&mut self, frame: &mut Frame, area: Rect) {
+        let title = match &self.current_focus {
+            FocusArea::TrackPanning => "7 - TRACK PANNING [FOCUSED]",
+            _ => "7 - TRACK PANNING",
+        };
+        
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL);
+        
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        
+        let focused = matches!(self.current_focus, FocusArea::TrackPanning);
+        self.render_panning_controls_only(frame, inner, focused);
+    }
+    
+    fn render_sequencer_grid_only(&mut self, frame: &mut Frame, area: Rect) {
+        // Create a custom grid widget that only shows the steps/frequency grid without controls
+        let grid = self.sequencer_panel.grid.clone();
+        frame.render_widget(GridOnlyWidget { grid }, area);
+    }
+    
+    fn render_volume_controls_only(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
+        use ratatui::{
+            style::{Color, Style},
+            widgets::Paragraph,
+        };
+        
+        let style = if focused {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        
+        // Render volume controls for each track
+        for (track_idx, track) in self.sequencer_panel.grid.tracks.iter().enumerate() {
+            let y_pos = area.y + track_idx as u16;
+            
+            // Stop if we're out of bounds
+            if y_pos >= area.y + area.height {
+                break;
+            }
+            
+            let is_selected = focused && 
+                             self.sequencer_panel.grid.cursor.track == track_idx as u8 &&
+                             track.selected_control == crate::tui::ui::widgets::TrackControl::Volume;
+            
+            let vol_style = if is_selected {
+                Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+            } else {
+                style
+            };
+            
+            let vol_percent = (track.volume * 100.0) as u8;
+            let vol_bars = (track.volume * 10.0) as usize; // 10 blocks for compact display
+            let vol_filled = "█".repeat(vol_bars);
+            let vol_empty = "░".repeat(10 - vol_bars);
+            let vol_display = format!("T{} {}{} {}%", track.track_number, vol_filled, vol_empty, vol_percent);
+            
+            let paragraph = Paragraph::new(vol_display).style(vol_style);
+            let cell_area = Rect { x: area.x, y: y_pos, width: area.width, height: 1 };
+            frame.render_widget(paragraph, cell_area);
+        }
+    }
+    
+    fn render_panning_controls_only(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
+        use ratatui::{
+            style::{Color, Style},
+            widgets::Paragraph,
+        };
+        
+        let style = if focused {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        
+        // Render panning controls for each track
+        for (track_idx, track) in self.sequencer_panel.grid.tracks.iter().enumerate() {
+            let y_pos = area.y + track_idx as u16;
+            
+            // Stop if we're out of bounds
+            if y_pos >= area.y + area.height {
+                break;
+            }
+            
+            let is_selected = focused && 
+                             self.sequencer_panel.grid.cursor.track == track_idx as u8 &&
+                             track.selected_control == crate::tui::ui::widgets::TrackControl::Pan;
+            
+            let pan_style = if is_selected {
+                Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+            } else {
+                style
+            };
+            
+            let pan_percent = (track.pan * 100.0) as i8;
+            let pan_pos = ((track.pan + 1.0) * 5.0) as usize; // 10 positions (0-9) for compact display
+            let mut pan_display: Vec<char> = "░".repeat(10).chars().collect();
+            
+            // Mark center position
+            pan_display[5] = '│'; // Center marker (position 5 out of 10)
+            if pan_pos < 10 {
+                pan_display[pan_pos] = '█'; // Current position
+            }
+            
+            let pan_display: String = pan_display.into_iter().collect();
+            let pan_text = format!("T{} L{} R {:+}%", track.track_number, pan_display, pan_percent);
+            
+            let paragraph = Paragraph::new(pan_text).style(pan_style);
+            let cell_area = Rect { x: area.x, y: y_pos, width: area.width, height: 1 };
+            frame.render_widget(paragraph, cell_area);
+        }
     }
     
     fn render_transport(&self, frame: &mut Frame, area: Rect) {
@@ -728,11 +1097,13 @@ impl RoscoTuiApp {
             FocusArea::Synthesizer(SynthSection::Envelope) => "Envelope",
             FocusArea::Synthesizer(SynthSection::Effects) => "Effects",
             FocusArea::Sequencer => "Sequencer",
+            FocusArea::TrackVolume => "Track Volume",
+            FocusArea::TrackPanning => "Track Panning",
             FocusArea::Transport => "Transport",
         };
         
         let content = format!(
-            "{} | {} | 1-5:Sections +/-:Adjust R:Reset F1:Help ESC:Quit",
+            "{} | {} | 1-7:Sections +/-:Adjust R:Reset F1:Help ESC:Quit",
             status_msg,
             current_section_info
         );
@@ -752,7 +1123,7 @@ NAVIGATION:
   ESC        - Quit application
 
 SYNTHESIZER CONTROLS:
-  1-5        - Quick switch to Osc/Filter/Env/FX/Sequencer sections
+  1-7        - Quick switch to Osc/Filter/Env/FX/Grid/Volume/Panning sections
   Up/Down    - Navigate between controls in section
   Left/Right - Adjust parameter values
   +/-        - Fine adjustment (Freq: ±0.1Hz, Vol: ±1%)
@@ -766,13 +1137,21 @@ OSCILLATOR SECTION:
 TRANSPORT:
   Enter/Space - Play/Stop toggle
 
-SEQUENCER (5):
-  Tab        - Cycle: Steps → Track Controls
+TRACK GRID (5):
+  Tab        - Cycle: Steps → Frequency
   Arrow Keys - Navigate grid (Up/Down: step/frequency rows)
   Enter/Space - Toggle step (Steps) / Open dropdown (Frequency)
   Up/Down    - Select pitch in dropdown mode
   Esc        - Exit dropdown mode
   [C] Normal / ▼C▲ Dropdown - Visual states
+
+TRACK VOLUME (6):
+  Up/Down    - Navigate between tracks
+  Left/Right - Adjust track volume (±5%)
+
+TRACK PANNING (7):
+  Up/Down    - Navigate between tracks
+  Left/Right - Adjust track panning (±10%)
 
 REAL-TIME FEATURES:
   • Parameter updates <10ms latency
