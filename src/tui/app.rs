@@ -838,21 +838,6 @@ impl RoscoTuiApp {
         );
         frame.render_widget(Paragraph::new(waveform_text).style(waveform_style), chunks[0]);
         
-        // Render frequency control
-        // let freq_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::OscillatorSubSection::Frequency;
-        // let freq_style = if freq_focused { 
-        //     Style::default().fg(Color::Cyan) 
-        // } else { 
-        //     Style::default().fg(Color::White) 
-        // };
-        // let freq_slider = &self.synthesizer_panel.oscillator.frequency_slider;
-        // let freq_text = format!("Freq: {} {:.1} Hz {}", 
-        //     freq_slider.render_bar(),
-        //     freq_slider.value,
-        //     if freq_focused { "◄" } else { "" }
-        // );
-        // frame.render_widget(Paragraph::new(freq_text).style(freq_style), chunks[1]);
-        
         // Render volume control
         let vol_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::OscillatorSubSection::Volume;
         let vol_style = if vol_focused { 
