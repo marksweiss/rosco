@@ -769,14 +769,14 @@ impl RoscoTuiApp {
         frame.render_widget(block, area);
         
         self.render_oscillator_section(frame, synth_chunks[0]);
-        self.render_placeholder_section(frame, synth_chunks[1], "FILTER");
-        self.render_placeholder_section(frame, synth_chunks[2], "ENVELOPE");
-        self.render_placeholder_section(frame, synth_chunks[3], "EFFECTS");
+        self.render_placeholder_section(frame, synth_chunks[1], "2 - FILTER");
+        self.render_placeholder_section(frame, synth_chunks[2], "3 - ENVELOPE");
+        self.render_placeholder_section(frame, synth_chunks[3], "4 - EFFECTS");
     }
     
     fn render_oscillator_section(&self, frame: &mut Frame, area: Rect) {
         let focused = matches!(self.current_focus, FocusArea::Synthesizer(SynthSection::Oscillator));
-        let title = if focused { "OSCILLATOR [FOCUSED]" } else { "OSCILLATOR" };
+        let title = if focused { "1 - OSCILLATOR [FOCUSED]" } else { "1 - OSCILLATOR" };
         
         let block = Block::default()
             .title(title)
