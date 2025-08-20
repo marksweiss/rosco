@@ -1,7 +1,9 @@
 use crate::note::constants::PITCH_TO_FREQ_HZ;
+use std::fmt;
 
 #[allow(dead_code)]
-pub(crate) enum WesternPitch {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum WesternPitch {
     C,
     CSharp,
     DFlat,
@@ -40,7 +42,7 @@ pub(crate) enum ArabicScale {
 
 #[allow(dead_code)]
 impl WesternPitch {
-    pub(crate) fn get_pitch_index(&self) -> u8 {
+    pub fn get_pitch_index(&self) -> u8 {
         match self {
             WesternPitch::C => 0,
             WesternPitch::CSharp => 1,
@@ -62,8 +64,61 @@ impl WesternPitch {
         }
     }
     
-    pub(crate) fn get_frequency(&self, octave: u8) -> f32 {
+    pub fn get_frequency(&self, octave: u8) -> f32 {
         PITCH_TO_FREQ_HZ[(octave * 12 + self.get_pitch_index()) as usize] as f32
+    }
+
+    pub fn all_pitches() -> [WesternPitch; 12] {
+        [
+            WesternPitch::C,
+            WesternPitch::CSharp,
+            WesternPitch::D,
+            WesternPitch::DSharp,
+            WesternPitch::E,
+            WesternPitch::F,
+            WesternPitch::FSharp,
+            WesternPitch::G,
+            WesternPitch::GSharp,
+            WesternPitch::A,
+            WesternPitch::ASharp,
+            WesternPitch::B,
+        ]
+    }
+
+    pub fn next(&self) -> WesternPitch {
+        let pitches = Self::all_pitches();
+        let current_idx = pitches.iter().position(|p| *p == *self).unwrap_or(0);
+        pitches[(current_idx + 1) % pitches.len()]
+    }
+
+    pub fn previous(&self) -> WesternPitch {
+        let pitches = Self::all_pitches();
+        let current_idx = pitches.iter().position(|p| *p == *self).unwrap_or(0);
+        pitches[(current_idx + pitches.len() - 1) % pitches.len()]
+    }
+}
+
+impl fmt::Display for WesternPitch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            WesternPitch::C => write!(f, "C"),
+            WesternPitch::CSharp => write!(f, "C#"),
+            WesternPitch::DFlat => write!(f, "Db"),
+            WesternPitch::D => write!(f, "D"),
+            WesternPitch::DSharp => write!(f, "D#"),
+            WesternPitch::EFlat => write!(f, "Eb"),
+            WesternPitch::E => write!(f, "E"),
+            WesternPitch::F => write!(f, "F"),
+            WesternPitch::FSharp => write!(f, "F#"),
+            WesternPitch::GFlat => write!(f, "Gb"),
+            WesternPitch::G => write!(f, "G"),
+            WesternPitch::GSharp => write!(f, "G#"),
+            WesternPitch::AFlat => write!(f, "Ab"),
+            WesternPitch::A => write!(f, "A"),
+            WesternPitch::ASharp => write!(f, "A#"),
+            WesternPitch::BFlat => write!(f, "Bb"),
+            WesternPitch::B => write!(f, "B"),
+        }
     }
 }
 

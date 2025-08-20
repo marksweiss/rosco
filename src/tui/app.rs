@@ -241,6 +241,10 @@ impl RoscoTuiApp {
                 self.current_focus = FocusArea::Synthesizer(SynthSection::Effects);
                 self.ui_state.status_message = Some("Effects section".to_string());
             }
+            KeyCode::Char('5') => {
+                self.current_focus = FocusArea::Sequencer;
+                self.ui_state.status_message = Some("Track Sequencer section".to_string());
+            }
             // Fine adjustment with +/- keys
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 if let FocusArea::Synthesizer(SynthSection::Oscillator) = &self.current_focus {
@@ -416,6 +420,15 @@ impl RoscoTuiApp {
                     };
                     self.send_parameter_update_real_time(update)?;
                 }
+                SequencerAction::FrequencyChanged { track, step, frequency } => {
+                    self.ui_state.status_message = Some(format!(
+                        "Track {} Step {} frequency: {} ({:.1} Hz)", 
+                        track + 1, 
+                        step + 1,
+                        frequency,
+                        frequency.get_frequency(3)
+                    ));
+                }
                 SequencerAction::TrackVolumeChanged { track, volume } => {
                     self.ui_state.status_message = Some(format!(
                         "Track {} volume: {:.0}%", 
@@ -522,8 +535,8 @@ impl RoscoTuiApp {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(35), // Synthesizer
-                Constraint::Min(14),        // Sequencer (8 tracks + borders + step numbers)
+                Constraint::Percentage(20), // Synthesizer (reduced further to ensure 8 tracks fit)
+                Constraint::Min(24),        // Sequencer (8 tracks * 2 rows + borders + step numbers = 16 + 8 = 24)
                 Constraint::Min(3),         // Status bar
             ])
             .split(size);
@@ -641,8 +654,8 @@ impl RoscoTuiApp {
     
     fn render_sequencer(&mut self, frame: &mut Frame, area: Rect) {
         let title = match &self.current_focus {
-            FocusArea::Sequencer => "8-TRACK SEQUENCER [FOCUSED]",
-            _ => "8-TRACK SEQUENCER",
+            FocusArea::Sequencer => "5 - TRACK SEQUENCER [FOCUSED]",
+            _ => "5 - TRACK SEQUENCER",
         };
         
         let block = Block::default()
@@ -719,7 +732,7 @@ impl RoscoTuiApp {
         };
         
         let content = format!(
-            "{} | {} | 1-4:Sections +/-:Adjust R:Reset F1:Help ESC:Quit",
+            "{} | {} | 1-5:Sections +/-:Adjust R:Reset F1:Help ESC:Quit",
             status_msg,
             current_section_info
         );
@@ -739,7 +752,7 @@ NAVIGATION:
   ESC        - Quit application
 
 SYNTHESIZER CONTROLS:
-  1-4        - Quick switch to Osc/Filter/Env/FX sections
+  1-5        - Quick switch to Osc/Filter/Env/FX/Sequencer sections
   Up/Down    - Navigate between controls in section
   Left/Right - Adjust parameter values
   +/-        - Fine adjustment (Freq: ±0.1Hz, Vol: ±1%)
@@ -752,6 +765,14 @@ OSCILLATOR SECTION:
 
 TRANSPORT:
   Enter/Space - Play/Stop toggle
+
+SEQUENCER (5):
+  Tab        - Cycle: Steps → Track Controls
+  Arrow Keys - Navigate grid (Up/Down: step/frequency rows)
+  Enter/Space - Toggle step (Steps) / Open dropdown (Frequency)
+  Up/Down    - Select pitch in dropdown mode
+  Esc        - Exit dropdown mode
+  [C] Normal / ▼C▲ Dropdown - Visual states
 
 REAL-TIME FEATURES:
   • Parameter updates <10ms latency

@@ -7,3 +7,5 @@ Cargo.lock
 # Vendored tools (for direct clones - not needed for submodules but kept for reference)
 /tools/*/.git
 /tools/vendor/
+.claude/settings.local.json
+*.png

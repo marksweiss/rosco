@@ -13,6 +13,7 @@ pub struct SequencerPanel {
 #[derive(Debug, Clone)]
 pub enum SequencerAction {
     StepToggled { track: u8, step: u8 },
+    FrequencyChanged { track: u8, step: u8, frequency: crate::note::scales::WesternPitch },
     TrackVolumeChanged { track: u8, volume: f32 },
     TrackPanChanged { track: u8, pan: f32 },
     TrackMuteToggled { track: u8 },
@@ -46,16 +47,30 @@ impl SequencerPanel {
         match key.code {
             // Navigation
             KeyCode::Up => {
-                self.grid.move_cursor(-1, 0);
+                if self.grid.cursor.focus_area == crate::tui::ui::widgets::CursorFocus::FrequencyDropdown {
+                    // In dropdown mode, Up changes frequency
+                    self.grid.adjust_current_frequency(-1);
+                    actions.push(SequencerAction::FrequencyChanged {
+                        track: self.grid.cursor.track,
+                        step: self.grid.cursor.step,
+                        frequency: self.grid.get_current_frequency(),
+                    });
+                } else {
+                    self.grid.move_cursor(-1, 0);
+                }
             }
             KeyCode::Down => {
-                self.grid.move_cursor(1, 0);
-            }
-            KeyCode::Left => {
-                self.grid.move_cursor(0, -1);
-            }
-            KeyCode::Right => {
-                self.grid.move_cursor(0, 1);
+                if self.grid.cursor.focus_area == crate::tui::ui::widgets::CursorFocus::FrequencyDropdown {
+                    // In dropdown mode, Down changes frequency
+                    self.grid.adjust_current_frequency(1);
+                    actions.push(SequencerAction::FrequencyChanged {
+                        track: self.grid.cursor.track,
+                        step: self.grid.cursor.step,
+                        frequency: self.grid.get_current_frequency(),
+                    });
+                } else {
+                    self.grid.move_cursor(1, 0);
+                }
             }
             
             // Focus switching
@@ -63,7 +78,7 @@ impl SequencerPanel {
                 self.grid.switch_focus();
             }
             
-            // Step editing
+            // Step editing and dropdown control
             KeyCode::Enter | KeyCode::Char(' ') => {
                 match self.grid.cursor.focus_area {
                     crate::tui::ui::widgets::CursorFocus::Steps => {
@@ -73,12 +88,36 @@ impl SequencerPanel {
                             step: self.grid.cursor.step,
                         });
                     }
+                    crate::tui::ui::widgets::CursorFocus::Frequency => {
+                        // Enter dropdown mode for frequency selection
+                        self.grid.enter_frequency_dropdown();
+                    }
+                    crate::tui::ui::widgets::CursorFocus::FrequencyDropdown => {
+                        // Exit dropdown mode
+                        self.grid.exit_frequency_dropdown();
+                    }
                     crate::tui::ui::widgets::CursorFocus::TrackControls => {
                         self.handle_track_control_action(&mut actions);
                     }
                 }
             }
             
+            // Escape key to exit dropdown mode (only handle in dropdown mode)
+            KeyCode::Esc => {
+                if self.grid.cursor.focus_area == crate::tui::ui::widgets::CursorFocus::FrequencyDropdown {
+                    self.grid.exit_frequency_dropdown();
+                }
+                // Always return without consuming Esc, let app handle global quit
+            }
+            
+            // Navigation - Standard grid navigation
+            KeyCode::Left => {
+                self.grid.move_cursor(0, -1);
+            }
+            KeyCode::Right => {
+                self.grid.move_cursor(0, 1);
+            }
+
             // Parameter adjustment
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 if self.grid.cursor.focus_area == crate::tui::ui::widgets::CursorFocus::TrackControls {

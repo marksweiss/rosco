@@ -6,6 +6,7 @@ use ratatui::{
 };
 
 use crate::note::playback_note::PlaybackNote;
+use crate::note::scales::WesternPitch;
 
 #[derive(Debug, Clone)]
 pub struct SequencerGrid {
@@ -40,6 +41,7 @@ pub enum TrackControl {
 pub struct StepCell {
     pub enabled: bool,
     pub velocity: u8,
+    pub frequency: WesternPitch,
     #[serde(skip)] // Skip serialization of PlaybackNote for now
     pub note: Option<PlaybackNote>,
     #[serde(skip)] // Skip serialization of highlighted state
@@ -56,6 +58,8 @@ pub struct GridCursor {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CursorFocus {
     Steps,
+    Frequency,
+    FrequencyDropdown, // New state for when dropdown is open
     TrackControls,
 }
 
@@ -86,13 +90,38 @@ impl SequencerGrid {
     pub fn move_cursor(&mut self, track_delta: i8, step_delta: i8) {
         match self.cursor.focus_area {
             CursorFocus::Steps => {
-                let new_track = (self.cursor.track as i8 + track_delta)
-                    .clamp(0, 7) as u8;
-                let new_step = (self.cursor.step as i8 + step_delta)
-                    .clamp(0, self.steps_per_track as i8 - 1) as u8;
-                
-                self.cursor.track = new_track;
-                self.cursor.step = new_step;
+                if track_delta != 0 {
+                    // Up/Down in Steps mode: switch between Steps and Frequency rows
+                    if track_delta > 0 {
+                        self.cursor.focus_area = CursorFocus::Frequency;
+                    }
+                    // Can't go up from Steps row
+                } else if step_delta != 0 {
+                    // Left/Right in Steps mode: navigate steps
+                    let new_step = (self.cursor.step as i8 + step_delta)
+                        .clamp(0, self.steps_per_track as i8 - 1) as u8;
+                    self.cursor.step = new_step;
+                }
+            }
+            CursorFocus::Frequency => {
+                if track_delta != 0 {
+                    // Up/Down in Frequency mode: switch between Frequency and Steps rows
+                    if track_delta < 0 {
+                        self.cursor.focus_area = CursorFocus::Steps;
+                    }
+                    // Can't go down from Frequency row
+                } else if step_delta != 0 {
+                    // Left/Right in Frequency mode: navigate steps
+                    let new_step = (self.cursor.step as i8 + step_delta)
+                        .clamp(0, self.steps_per_track as i8 - 1) as u8;
+                    self.cursor.step = new_step;
+                }
+            }
+            CursorFocus::FrequencyDropdown => {
+                // In dropdown mode, only Up/Down changes frequency values
+                // Note: frequency changes need to be handled in sequencer for proper action dispatch
+                // This just prevents navigation, actual frequency changes happen in sequencer
+                // Left/Right do nothing in dropdown mode
             }
             CursorFocus::TrackControls => {
                 if track_delta != 0 {
@@ -126,6 +155,8 @@ impl SequencerGrid {
     pub fn switch_focus(&mut self) {
         self.cursor.focus_area = match self.cursor.focus_area {
             CursorFocus::Steps => CursorFocus::TrackControls,
+            CursorFocus::Frequency => CursorFocus::TrackControls, // Shouldn't happen via Tab
+            CursorFocus::FrequencyDropdown => CursorFocus::TrackControls, // Exit dropdown
             CursorFocus::TrackControls => CursorFocus::Steps,
         };
     }
@@ -134,6 +165,33 @@ impl SequencerGrid {
         let track = &mut self.tracks[self.cursor.track as usize];
         let step = &mut track.steps[self.cursor.step as usize];
         step.enabled = !step.enabled;
+    }
+
+    pub fn adjust_current_frequency(&mut self, direction: i8) {
+        let track = &mut self.tracks[self.cursor.track as usize];
+        let step = &mut track.steps[self.cursor.step as usize];
+        
+        step.frequency = if direction > 0 {
+            step.frequency.next()
+        } else {
+            step.frequency.previous()
+        };
+    }
+
+    pub fn get_current_frequency(&self) -> WesternPitch {
+        self.tracks[self.cursor.track as usize].steps[self.cursor.step as usize].frequency
+    }
+
+    pub fn enter_frequency_dropdown(&mut self) {
+        if self.cursor.focus_area == CursorFocus::Frequency {
+            self.cursor.focus_area = CursorFocus::FrequencyDropdown;
+        }
+    }
+
+    pub fn exit_frequency_dropdown(&mut self) {
+        if self.cursor.focus_area == CursorFocus::FrequencyDropdown {
+            self.cursor.focus_area = CursorFocus::Frequency;
+        }
     }
     
     pub fn set_playing_step(&mut self, step: Option<usize>) {
@@ -311,13 +369,26 @@ impl SequencerGrid {
 
 impl TrackStrip {
     pub fn new(track_number: u8, steps: usize) -> Self {
+        let mut track_steps = vec![StepCell::default(); steps];
+        
+        // Enable a few steps by default to show the grid working
+        if steps > 0 {
+            track_steps[0].enabled = true; // Enable first step
+        }
+        if steps > 4 {
+            track_steps[4].enabled = true; // Enable fifth step
+        }
+        if steps > 8 {
+            track_steps[8].enabled = true; // Enable ninth step
+        }
+        
         Self {
             track_number,
             volume: 0.8,
             pan: 0.0,
             mute: false,
             solo: false,
-            steps: vec![StepCell::default(); steps],
+            steps: track_steps,
             selected_control: TrackControl::Volume,
         }
     }
@@ -344,6 +415,7 @@ impl Default for StepCell {
         Self {
             enabled: false,
             velocity: 127,
+            frequency: WesternPitch::C,
             note: None,
             highlighted: false,
         }
@@ -358,30 +430,35 @@ impl Widget for SequencerGrid {
             Style::default().fg(Color::White)
         };
         
-        // Calculate layout areas
-        let control_width = 80; // Increased to accommodate 3x wider display
+        // Calculate layout areas - move controls to far right, expand grid
+        let control_width = 80; // Increased back to original size for proper layout
         let step_area_width = area.width.saturating_sub(control_width);
         
-        // Render track rows
+        // Render track rows (each track takes 2 rows: steps + frequency)
+        // Allow for all 8 tracks - be less restrictive with height calculation
         for (track_idx, track) in self.tracks.iter().enumerate() {
-            if track_idx >= area.height.saturating_sub(2) as usize {
+            let y_steps = area.y + (track_idx * 2) as u16;
+            let y_freq = y_steps + 1;
+            
+            // Stop if we don't have room for both rows of this track
+            // Leave minimal space for step numbers at bottom
+            if y_freq >= area.y + area.height.saturating_sub(1) {
                 break;
             }
             
-            let y = area.y + track_idx as u16;
-            let mut x = area.x;
+            let x = area.x;
             
-            // Track number
+            // Track number (spans both rows)
             let track_style = if self.cursor.track == track_idx as u8 {
                 Style::default().fg(Color::Yellow)
             } else {
                 style
             };
-            buf.set_string(x, y, &format!("{} ", track.track_number), track_style);
-            x += 2;
+            buf.set_string(x, y_steps, &format!("{}", track.track_number), track_style);
+            let mut step_x = x + 2;
             
-            // Step cells
-            let max_steps = ((step_area_width.saturating_sub(2)) / 3) as usize;
+            // Step cells - show as many steps as will fit, up to 16
+            let max_steps = ((step_area_width.saturating_sub(2)) / 4) as usize; // 4 chars per step
             let visible_steps = self.steps_per_track.min(max_steps);
             
             for step_idx in 0..visible_steps {
@@ -390,13 +467,20 @@ impl Widget for SequencerGrid {
                 }
                 
                 let step = &track.steps[step_idx];
-                let is_cursor = self.cursor.track == track_idx as u8 && 
-                               self.cursor.step == step_idx as u8 &&
-                               self.cursor.focus_area == CursorFocus::Steps;
+                let is_step_cursor = self.cursor.track == track_idx as u8 && 
+                                   self.cursor.step == step_idx as u8 &&
+                                   self.cursor.focus_area == CursorFocus::Steps;
+                let is_freq_cursor = self.cursor.track == track_idx as u8 && 
+                                   self.cursor.step == step_idx as u8 &&
+                                   self.cursor.focus_area == CursorFocus::Frequency;
+                let is_freq_dropdown = self.cursor.track == track_idx as u8 && 
+                                      self.cursor.step == step_idx as u8 &&
+                                      self.cursor.focus_area == CursorFocus::FrequencyDropdown;
                 let is_playing = self.playing_step == Some(step_idx);
                 let is_selected = self.is_step_selected(track_idx as u8, step_idx as u8);
                 
-                let cell_style = if is_cursor {
+                // Step cell style
+                let step_style = if is_step_cursor {
                     Style::default().fg(Color::Yellow).bg(Color::DarkGray)
                 } else if is_playing {
                     Style::default().fg(Color::Green).bg(Color::Black)
@@ -406,29 +490,74 @@ impl Widget for SequencerGrid {
                     style
                 };
                 
+                // Frequency cell style  
+                let freq_style = if is_freq_dropdown {
+                    Style::default().fg(Color::Rgb(255, 255, 0)).bg(Color::Rgb(0, 0, 255)) // Bright yellow on blue for dropdown
+                } else if is_freq_cursor {
+                    Style::default().fg(Color::Rgb(0, 255, 0)).bg(Color::Black) // Pure bright green on black for maximum contrast
+                } else if is_playing {
+                    Style::default().fg(Color::Green).bg(Color::Black)
+                } else if is_selected {
+                    Style::default().fg(Color::LightGreen).bg(Color::Blue) // Bright light green text for selected frequency cells
+                } else {
+                    // Use bright green text for better visibility instead of default style
+                    Style::default().fg(Color::LightGreen)
+                };
+                
+                // Render step cell
                 let symbol = if step.enabled { "●" } else { "·" };
-                buf.set_string(x, y, &format!("│{}│", symbol), cell_style);
-                x += 3;
+                buf.set_string(step_x, y_steps, &format!(" {} ", symbol), step_style);
+                
+                // Render frequency cell - match the step cell format for alignment
+                let freq_text = if step.enabled {
+                    if is_freq_dropdown {
+                        // Show active dropdown with special indicators
+                        format!("▼{}▲", step.frequency)
+                    } else if is_freq_cursor {
+                        // Show selectable frequency with brackets
+                        format!("[{}]", step.frequency)
+                    } else {
+                        format!(" {} ", step.frequency)
+                    }
+                } else {
+                    " · ".to_string()
+                };
+                buf.set_string(step_x, y_freq, &freq_text, freq_style);
+                
+                step_x += 4;
             }
             
-            // Track controls
-            x = area.x + step_area_width;
-            if x < area.x + area.width {
-                self.render_track_controls(track, track_idx as u8, x, y, buf, style);
+            // Track controls (positioned to the right, spans both step and frequency rows)
+            let controls_x = area.x + step_area_width;
+            if controls_x < area.x + area.width {
+                self.render_track_controls(track, track_idx as u8, controls_x, y_steps, buf, style);
             }
         }
         
         // Render step numbers at bottom
-        if area.height > 8 {
-            let y = area.y + 8;
+        // Calculate how many tracks we actually rendered using the same logic as the track loop
+        let mut rendered_tracks = 0;
+        for track_idx in 0..self.tracks.len() {
+            let y_steps = area.y + (track_idx * 2) as u16;
+            let y_freq = y_steps + 1;
+            
+            if y_freq >= area.y + area.height.saturating_sub(1) {
+                break;
+            }
+            rendered_tracks += 1;
+        }
+        
+        // Only render step numbers if there's space
+        let step_numbers_y = area.y + (rendered_tracks * 2) as u16;
+        if step_numbers_y < area.y + area.height {
             let mut x = area.x + 2; // Offset for track numbers
             
-            let max_steps = ((step_area_width.saturating_sub(2)) / 3) as usize;
+            let max_steps = ((step_area_width.saturating_sub(2)) / 4) as usize;
             let visible_steps = self.steps_per_track.min(max_steps);
             
             for step in 1..=visible_steps {
-                buf.set_string(x, y, &format!(" {} ", step), style);
-                x += 3;
+                buf.set_string(x, step_numbers_y, &format!("{:^4}", step), style);
+                x += 4;
             }
         }
     }
@@ -453,31 +582,29 @@ impl SequencerGrid {
         let is_track_focused = self.cursor.track == track_idx && 
                               self.cursor.focus_area == CursorFocus::TrackControls;
         
-        // Volume control with improved display
+        // Volume control - match original format: "V1 [████████░░] 80%"
         let vol_style = if is_track_focused && track.selected_control == TrackControl::Volume {
             Style::default().fg(Color::Yellow).bg(Color::DarkGray)
         } else {
             base_style
         };
         
-        // Volume display with percentage and visual scale
         let vol_percent = (track.volume * 100.0) as u8;
-        let vol_bars = (track.volume * 15.0) as usize; // Use 15 blocks (3x wider)
+        let vol_bars = (track.volume * 15.0) as usize; // 15 blocks like original
         let vol_filled = "█".repeat(vol_bars);
         let vol_empty = "░".repeat(15 - vol_bars);
-        let vol_display = format!("V:{}{} {}%", vol_filled, vol_empty, vol_percent);
+        let vol_display = format!("V{} {}{} {}%", track_idx + 1, vol_filled, vol_empty, vol_percent);
         buf.set_string(x, y, &vol_display, vol_style);
         
-        // Pan control with L/R labels and slider
+        // Pan control - match original format: "L [░░░█░░░] R +0%"
         let pan_style = if is_track_focused && track.selected_control == TrackControl::Pan {
             Style::default().fg(Color::Yellow).bg(Color::DarkGray)
         } else {
             base_style
         };
         
-        // Pan display with L/R labels and slider
         let pan_percent = (track.pan * 100.0) as i8;
-        let pan_pos = ((track.pan + 1.0) * 7.5) as usize; // Use 15 positions (0-14)
+        let pan_pos = ((track.pan + 1.0) * 7.5) as usize; // 15 positions (0-14) like original
         let mut pan_display: Vec<char> = "░".repeat(15).chars().collect();
         
         // Mark center position with a different character
@@ -487,28 +614,7 @@ impl SequencerGrid {
         }
         
         let pan_display: String = pan_display.into_iter().collect();
-        let pan_text = format!("L{}R {:+}%", pan_display, pan_percent);
+        let pan_text = format!("L {} R {:+}%", pan_display, pan_percent);
         buf.set_string(x + 25, y, &pan_text, pan_style);
-        
-        // Mute/Solo buttons
-        let mute_style = if is_track_focused && track.selected_control == TrackControl::Mute {
-            Style::default().fg(Color::Yellow).bg(Color::DarkGray)
-        } else if track.mute {
-            Style::default().fg(Color::Red)
-        } else {
-            base_style
-        };
-        
-        let solo_style = if is_track_focused && track.selected_control == TrackControl::Solo {
-            Style::default().fg(Color::Yellow).bg(Color::DarkGray)
-        } else if track.solo {
-            Style::default().fg(Color::Green)
-        } else {
-            base_style
-        };
-        
-        buf.set_string(x, y.saturating_add(1), "│M││S│", base_style);
-        buf.set_string(x + 1, y.saturating_add(1), if track.mute { "M" } else { " " }, mute_style);
-        buf.set_string(x + 4, y.saturating_add(1), if track.solo { "S" } else { " " }, solo_style);
     }
 }
