@@ -1,6 +1,7 @@
-use crate::tui::{TuiError, audio_bridge::AudioBridge, config::TuiConfig, events::EventHandler};
+use crate::tui::{TuiError, audio_bridge::AudioBridge, config::TuiConfig, events::EventHandler, audio_engine::{AudioEngine, AudioState}};
 use crate::tui::ui::{SynthesizerPanel, SequencerPanel};
 use crate::audio_gen;
+use std::sync::{mpsc, Arc};
 use crate::track::Track;
 use crate::sequence::FixedTimeNoteSequence;
 
@@ -302,9 +303,22 @@ impl RoscoTuiApp {
     }
     
     pub async fn run(&mut self) -> Result<(), TuiError> {
-        // Temporarily disable audio bridge to test if this fixes the string boundary panic
-        println!("Skipping audio bridge initialization to test TUI without audio...");
-        self.audio_bridge = None;
+        // Initialize audio bridge with real audio engine
+        println!("Initializing audio bridge with real audio engine...");
+        match crate::tui::audio_bridge::AudioBridge::new() {
+            Ok(bridge) => {
+                self.audio_bridge = Some(bridge);
+                println!("Audio bridge initialized successfully");
+                
+                // Initialize sequencer data in audio state
+                self.sync_sequencer_to_audio();
+            }
+            Err(e) => {
+                println!("Warning: Could not initialize audio bridge: {:?}", e);
+                println!("Running in silent mode...");
+                self.audio_bridge = None;
+            }
+        }
         
         // Setup terminal
         if let Err(e) = enable_raw_mode() {
@@ -333,8 +347,8 @@ impl RoscoTuiApp {
     
     async fn run_app<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TuiError> {
         loop {
-            // Update transport timing
-            self.update_transport_timing();
+            // Process audio feedback (step position updates from audio engine)
+            self.process_audio_feedback()?;
             
             terminal.draw(|f| self.update_ui(f))?;
             
@@ -345,25 +359,26 @@ impl RoscoTuiApp {
         Ok(())
     }
     
-    fn update_transport_timing(&mut self) {
-        if self.transport.is_playing {
-            let now = std::time::Instant::now();
-            let elapsed = now.duration_since(self.transport.last_step_time);
-            
-            // Calculate step interval from tempo: 60 seconds / BPM / 4 (16th notes)
-            // For 120 BPM: 60/120/4 = 0.125 seconds per 16th note
-            // But user wants full beat timing, so 60/120 = 0.5 seconds per beat
-            let step_interval = std::time::Duration::from_secs_f32(60.0 / self.transport.tempo);
-            
-            if elapsed >= step_interval {
-                // Advance to next step (1-16, wrapping)
-                self.transport.current_step = (self.transport.current_step + 1) % 16;
-                self.transport.last_step_time = now;
-                
-                // Update the sequencer grid's playing step for highlighting
-                self.sequencer_panel.grid.set_playing_step(Some(self.transport.current_step));
+    fn process_audio_feedback(&mut self) -> Result<(), TuiError> {
+        if let Some(bridge) = &mut self.audio_bridge {
+            let feedback = bridge.receive_audio_feedback();
+            for fb in feedback {
+                match fb {
+                    crate::tui::audio_bridge::AudioFeedback::PlaybackPosition(step) => {
+                        // Audio engine is master clock - it tells us the current step
+                        let step_int = step as usize;
+                        if step_int < 16 {
+                            self.transport.current_step = step_int;
+                            self.sequencer_panel.grid.set_playing_step(Some(step_int));
+                        }
+                    }
+                    _ => {
+                        // Handle other feedback types as needed
+                    }
+                }
             }
         }
+        Ok(())
     }
     
     async fn handle_events(&mut self) -> Result<bool, TuiError> {
@@ -658,6 +673,43 @@ impl RoscoTuiApp {
         Ok(())
     }
     
+    /// Sync sequencer grid data to audio engine state
+    fn sync_sequencer_to_audio(&mut self) {
+        if let Some(bridge) = &mut self.audio_bridge {
+            let audio_state = bridge.get_audio_state();
+            // Sync sequencer steps to audio state
+            for track_idx in 0..8 {
+                if track_idx < self.sequencer_panel.grid.tracks.len() {
+                    let track = &self.sequencer_panel.grid.tracks[track_idx];
+                    
+                    // Set track volume
+                    audio_state.track_volumes[track_idx].store(track.volume, std::sync::atomic::Ordering::Relaxed);
+                    
+                    // Set track frequency from first enabled step's frequency
+                    let freq = track.steps.iter()
+                        .find(|step| step.enabled)
+                        .map(|step| step.frequency.get_frequency(3))
+                        .unwrap_or(440.0); // Default to A4 if no enabled steps
+                    audio_state.track_frequencies[track_idx].store(freq, std::sync::atomic::Ordering::Relaxed);
+                    
+                    // Sync step states
+                    for step_idx in 0..16 {
+                        if step_idx < track.steps.len() {
+                            let audio_index = track_idx * 16 + step_idx;
+                            let is_enabled = track.steps[step_idx].enabled;
+                            audio_state.track_steps[audio_index].store(is_enabled, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                }
+            }
+            
+            // Sync transport state
+            audio_state.tempo.store(self.transport.tempo, std::sync::atomic::Ordering::Relaxed);
+            audio_state.current_step.store(self.transport.current_step, std::sync::atomic::Ordering::Relaxed);
+            audio_state.is_playing.store(self.transport.is_playing, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    
     fn process_sequencer_actions(&mut self, actions: Vec<crate::tui::ui::sequencer::SequencerAction>) -> Result<(), TuiError> {
         use crate::tui::ui::sequencer::SequencerAction;
         
@@ -671,6 +723,15 @@ impl RoscoTuiApp {
                         step + 1, 
                         if enabled { "enabled" } else { "disabled" }
                     ));
+                    
+                    // Update audio state directly for immediate response
+                    if let Some(bridge) = &mut self.audio_bridge {
+                        let audio_state = bridge.get_audio_state();
+                        if (track as usize) < 8 && (step as usize) < 16 {
+                            let audio_index = (track as usize) * 16 + (step as usize);
+                            audio_state.track_steps[audio_index].store(enabled, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
                     
                     // Send to audio bridge if available
                     let update = crate::tui::audio_bridge::ParameterUpdate::SequencerStep {
@@ -695,6 +756,14 @@ impl RoscoTuiApp {
                         track + 1, 
                         volume * 100.0
                     ));
+                    
+                    // Update audio state through bridge
+                    if let Some(bridge) = &self.audio_bridge {
+                        let audio_state = bridge.get_audio_state();
+                        if (track as usize) < 8 {
+                            audio_state.track_volumes[track as usize].store(volume, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
                 }
                 SequencerAction::TrackPanChanged { track, pan } => {
                     self.ui_state.status_message = Some(format!(

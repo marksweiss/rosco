@@ -1,5 +1,6 @@
 pub mod app;
 pub mod audio_bridge;
+pub mod audio_engine;
 pub mod config;
 pub mod events;
 pub mod ui;

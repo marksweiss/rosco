@@ -1,7 +1,7 @@
 use crate::tui::TuiError;
 use crate::audio_gen;
-use ringbuf::{HeapRb, HeapProducer, HeapConsumer};
-use std::sync::Arc;
+use crate::tui::audio_engine::{AudioEngine, AudioState};
+use std::sync::{Arc, mpsc};
 use atomic_float::AtomicF32;
 use std::sync::atomic::Ordering;
 
@@ -31,107 +31,51 @@ pub enum AudioFeedback {
 }
 
 pub struct AudioBridge {
-    // Parameter update channel (UI → Audio)
-    param_producer: HeapProducer<ParameterUpdate>,
-    param_consumer: HeapConsumer<ParameterUpdate>,
+    // Audio engine integration
+    _audio_engine: AudioEngine,
+    audio_state: Arc<AudioState>,
     
-    // Audio feedback channel (Audio → UI)
-    feedback_producer: HeapProducer<AudioFeedback>,
-    feedback_consumer: HeapConsumer<AudioFeedback>,
-    
-    // Shared atomic parameters for high-frequency updates
-    oscillator_freq: Arc<AtomicF32>,
-    filter_cutoff: Arc<AtomicF32>,
-    master_volume: Arc<AtomicF32>,
+    // Communication channels
+    param_tx: mpsc::Sender<ParameterUpdate>,
+    feedback_rx: mpsc::Receiver<AudioFeedback>,
 }
 
 impl AudioBridge {
     pub fn new() -> Result<Self, TuiError> {
-        println!("Creating parameter ring buffer...");
-        // Create ring buffers for lock-free communication
-        let param_rb = HeapRb::<ParameterUpdate>::new(1024);
-        let (param_producer, param_consumer) = param_rb.split();
+        println!("Creating audio engine...");
+        let (audio_engine, audio_state, param_tx, feedback_rx) = AudioEngine::new()?;
         
-        println!("Creating feedback ring buffer...");
-        let feedback_rb = HeapRb::<AudioFeedback>::new(1024);
-        let (feedback_producer, feedback_consumer) = feedback_rb.split();
-        
-        println!("Creating atomic floats...");
-        let oscillator_freq = Arc::new(AtomicF32::new(440.0));
-        let filter_cutoff = Arc::new(AtomicF32::new(8000.0));
-        let master_volume = Arc::new(AtomicF32::new(0.75));
-        
-        println!("Constructing AudioBridge struct...");
+        println!("AudioBridge initialized with real audio engine");
         Ok(Self {
-            param_producer,
-            param_consumer,
-            feedback_producer,
-            feedback_consumer,
-            oscillator_freq,
-            filter_cutoff,
-            master_volume,
+            _audio_engine: audio_engine,
+            audio_state,
+            param_tx,
+            feedback_rx,
         })
     }
     
     pub fn send_parameter_update(&mut self, update: ParameterUpdate) -> Result<(), TuiError> {
-        // Handle high-frequency parameters via atomics
-        match &update {
-            ParameterUpdate::OscillatorFrequency(freq) => {
-                self.oscillator_freq.store(*freq, Ordering::Relaxed);
-            }
-            ParameterUpdate::FilterCutoff(cutoff) => {
-                self.filter_cutoff.store(*cutoff, Ordering::Relaxed);
-            }
-            _ => {
-                // Send other parameters via ring buffer
-                if self.param_producer.push(update).is_err() {
-                    return Err(TuiError::Audio("Parameter update buffer full".to_string()));
-                }
-            }
-        }
-        Ok(())
-    }
-    
-    pub fn receive_parameter_updates(&mut self) -> Vec<ParameterUpdate> {
-        let mut updates = Vec::new();
-        while let Some(update) = self.param_consumer.pop() {
-            updates.push(update);
-        }
-        updates
-    }
-    
-    pub fn send_audio_feedback(&mut self, feedback: AudioFeedback) -> Result<(), TuiError> {
-        if self.feedback_producer.push(feedback).is_err() {
-            return Err(TuiError::Audio("Feedback buffer full".to_string()));
-        }
-        Ok(())
+        self.param_tx.send(update)
+            .map_err(|e| TuiError::Audio(format!("Failed to send parameter update: {}", e)))
     }
     
     pub fn receive_audio_feedback(&mut self) -> Vec<AudioFeedback> {
         let mut feedback = Vec::new();
-        while let Some(fb) = self.feedback_consumer.pop() {
+        while let Ok(fb) = self.feedback_rx.try_recv() {
             feedback.push(fb);
         }
         feedback
     }
     
-    pub fn get_oscillator_frequency(&self) -> f32 {
-        self.oscillator_freq.load(Ordering::Relaxed)
+    pub fn get_audio_state(&self) -> Arc<AudioState> {
+        Arc::clone(&self.audio_state)
     }
     
-    pub fn get_filter_cutoff(&self) -> f32 {
-        self.filter_cutoff.load(Ordering::Relaxed)
+    pub fn get_oscillator_frequency(&self) -> f32 {
+        self.audio_state.osc_frequency.load(Ordering::Relaxed)
     }
     
     pub fn get_master_volume(&self) -> f32 {
-        self.master_volume.load(Ordering::Relaxed)
-    }
-    
-    pub fn get_atomic_refs(&self) -> (Arc<AtomicF32>, Arc<AtomicF32>, Arc<AtomicF32>) {
-        (
-            Arc::clone(&self.oscillator_freq),
-            Arc::clone(&self.filter_cutoff),
-            Arc::clone(&self.master_volume),
-        )
+        self.audio_state.osc_volume.load(Ordering::Relaxed)
     }
 }
