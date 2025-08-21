@@ -685,19 +685,18 @@ impl RoscoTuiApp {
                     // Set track volume
                     audio_state.track_volumes[track_idx].store(track.volume, std::sync::atomic::Ordering::Relaxed);
                     
-                    // Set track frequency from first enabled step's frequency
-                    let freq = track.steps.iter()
-                        .find(|step| step.enabled)
-                        .map(|step| step.frequency.get_frequency(3))
-                        .unwrap_or(440.0); // Default to A4 if no enabled steps
-                    audio_state.track_frequencies[track_idx].store(freq, std::sync::atomic::Ordering::Relaxed);
-                    
-                    // Sync step states
+                    // Sync step states and individual step frequencies
                     for step_idx in 0..16 {
                         if step_idx < track.steps.len() {
                             let audio_index = track_idx * 16 + step_idx;
-                            let is_enabled = track.steps[step_idx].enabled;
-                            audio_state.track_steps[audio_index].store(is_enabled, std::sync::atomic::Ordering::Relaxed);
+                            let step = &track.steps[step_idx];
+                            
+                            // Set step enabled state
+                            audio_state.track_steps[audio_index].store(step.enabled, std::sync::atomic::Ordering::Relaxed);
+                            
+                            // Set step-specific frequency
+                            let step_frequency = step.frequency.get_frequency(3);
+                            audio_state.step_frequencies[audio_index].store(step_frequency, std::sync::atomic::Ordering::Relaxed);
                         }
                     }
                 }
@@ -749,6 +748,16 @@ impl RoscoTuiApp {
                         frequency,
                         frequency.get_frequency(3)
                     ));
+                    
+                    // Update step frequency in audio state in real-time
+                    if let Some(bridge) = &mut self.audio_bridge {
+                        let audio_state = bridge.get_audio_state();
+                        if (track as usize) < 8 && (step as usize) < 16 {
+                            let audio_index = (track as usize) * 16 + (step as usize);
+                            let step_frequency = frequency.get_frequency(3);
+                            audio_state.step_frequencies[audio_index].store(step_frequency, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
                 }
                 SequencerAction::TrackVolumeChanged { track, volume } => {
                     self.ui_state.status_message = Some(format!(

@@ -14,3 +14,6 @@ pub mod meter;
 pub mod dsl;
 pub mod compositions;
 pub mod tui;
+
+#[cfg(test)]
+pub mod test_frequency_fix;

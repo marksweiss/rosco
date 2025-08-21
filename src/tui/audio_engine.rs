@@ -47,10 +47,10 @@ pub struct AudioState {
     pub sample_count: AtomicUsize,
     pub last_step_time: Arc<parking_lot::Mutex<Instant>>,
     
-    // Sequencer data - simplified for Phase 1
+    // Sequencer data - fixed for proper step frequency support
     pub track_steps: [AtomicBool; 8 * 16], // 8 tracks × 16 steps
     pub track_volumes: [AtomicF32; 8],
-    pub track_frequencies: [AtomicF32; 8], // One frequency per track for now
+    pub step_frequencies: [AtomicF32; 8 * 16], // One frequency per step (8 tracks × 16 steps)
 }
 
 impl Default for AudioState {
@@ -59,10 +59,10 @@ impl Default for AudioState {
         let track_steps: [AtomicBool; 8 * 16] = std::array::from_fn(|_| AtomicBool::new(false));
         let track_volumes: [AtomicF32; 8] = std::array::from_fn(|_| AtomicF32::new(0.8));
         
-        // Initialize frequencies for each track (C3, D3, E3, F3, G3, A3, B3, C4)
-        let frequencies = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25];
-        let track_frequencies: [AtomicF32; 8] = std::array::from_fn(|i| {
-            AtomicF32::new(frequencies[i])
+        // Initialize step frequencies - each step gets a default frequency
+        // Initialize with C3 (261.63 Hz) for all steps
+        let step_frequencies: [AtomicF32; 8 * 16] = std::array::from_fn(|_| {
+            AtomicF32::new(261.63) // Default to C3
         });
         
         Self {
@@ -76,7 +76,7 @@ impl Default for AudioState {
             last_step_time: Arc::new(parking_lot::Mutex::new(Instant::now())),
             track_steps,
             track_volumes,
-            track_frequencies,
+            step_frequencies,
         }
     }
 }
@@ -211,15 +211,15 @@ fn audio_callback(data: &mut [f32], audio_state: &AudioState, osc_tables: &Oscil
             
             if is_step_active {
                 let track_volume = audio_state.track_volumes[track_idx].load(Ordering::Relaxed);
-                let track_frequency = audio_state.track_frequencies[track_idx].load(Ordering::Relaxed);
+                let step_frequency = audio_state.step_frequencies[step_index].load(Ordering::Relaxed);
                 
-                // Generate sample based on waveform
+                // Generate sample based on waveform using step-specific frequency
                 let sample = match waveform {
                     Waveform::GaussianNoise | Waveform::Noise => get_gaussian_noise_sample(),
-                    Waveform::Sine => get_sample(&osc_tables.sine_table, track_frequency, sample_count as u64),
-                    Waveform::Saw => get_sample(&osc_tables.saw_table, track_frequency, sample_count as u64),
-                    Waveform::Square => get_sample(&osc_tables.square_table, track_frequency, sample_count as u64),
-                    Waveform::Triangle => get_sample(&osc_tables.triangle_table, track_frequency, sample_count as u64),
+                    Waveform::Sine => get_sample(&osc_tables.sine_table, step_frequency, sample_count as u64),
+                    Waveform::Saw => get_sample(&osc_tables.saw_table, step_frequency, sample_count as u64),
+                    Waveform::Square => get_sample(&osc_tables.square_table, step_frequency, sample_count as u64),
+                    Waveform::Triangle => get_sample(&osc_tables.triangle_table, step_frequency, sample_count as u64),
                 };
                 
                 let final_sample = sample * track_volume * master_volume * 0.1; // Scale down to prevent clipping
