@@ -1,4 +1,7 @@
-# Domain-Specific Language (DSL) Module
+# DSL Module
+*Last auto-updated: 2025-08-21 00:08:46*
+*This summary was automatically updated due to source file changes in this commit.*
+
 
 ## Purpose
 Implements a custom domain-specific language for music composition, allowing users to write musical compositions in a high-level, declarative syntax rather than imperative Rust code.

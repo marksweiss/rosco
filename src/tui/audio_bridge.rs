@@ -2,7 +2,6 @@ use crate::tui::TuiError;
 use crate::audio_gen;
 use crate::tui::audio_engine::{AudioEngine, AudioState};
 use std::sync::{Arc, mpsc};
-use atomic_float::AtomicF32;
 use std::sync::atomic::Ordering;
 
 #[derive(Debug, Clone)]

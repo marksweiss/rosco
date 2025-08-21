@@ -165,6 +165,7 @@ pub(crate) fn get_waveforms_from_arg() -> Vec<Waveform> {
         .collect()
 }
 
+#[allow(dead_code)]
 pub(crate) fn play_track_grid<SequenceType>(track_grid: TrackGrid<SequenceType>)
 where
     // Add Send + 'static bounds to ensure thread safety

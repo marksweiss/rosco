@@ -1,6 +1,7 @@
 use crate::dsl::parser::parse_dsl;
 use crate::composition::comp_utils::play_track_grid;
 
+#[allow(dead_code)]
 pub(crate) fn play() {
     println!("playing dsl 1");
 
@@ -33,5 +34,5 @@ $delay1
 apply step:(range 1,13,3) $G5
 "#;
 
-    play_track_grid( parse_dsl(input).unwrap());
+    play_track_grid(parse_dsl(input).unwrap());
 }

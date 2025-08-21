@@ -12,7 +12,7 @@ pub(crate) static THIRTY_SECOND: f32 = 0.03125;
 pub(crate) static SIXTY_FOURTH: f32 = 0.015625;
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub(crate) enum DurationType {
+pub enum DurationType {
     Whole,
     Half,
     Quarter,

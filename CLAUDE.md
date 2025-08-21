@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Build and Run
 ```bash
+# the path to the `cargo` command is ~/.cargo/bin/cargo
+alias cargo="~/.cargo/bin/cargo"
+````
+
+```bash
 cargo build           # Build the project
 cargo run             # Run the main application (currently plays dsl_1 composition)
 ```
@@ -46,6 +51,7 @@ Rosco is a Rust-based music composition and audio generation toolkit with a modu
 - **meter/**: Timing, duration, and meter utilities
 - **composition/**: High-level composition utilities
 - **dsl/**: Domain-specific language for music composition with macro support
+- **tui/**: Terminal User Interface (TUI) for real-time control
 
 ### DSL Architecture
 The DSL parser creates a `Vec<Track>` from script input:

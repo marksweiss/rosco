@@ -1,9 +1,6 @@
-use crate::tui::{TuiError, audio_bridge::AudioBridge, config::TuiConfig, events::EventHandler, audio_engine::{AudioEngine, AudioState}};
+use crate::tui::{TuiError, audio_bridge::AudioBridge, config::TuiConfig, events::EventHandler};
 use crate::tui::ui::{SynthesizerPanel, SequencerPanel};
 use crate::audio_gen;
-use std::sync::{mpsc, Arc};
-use crate::track::Track;
-use crate::sequence::FixedTimeNoteSequence;
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent},
@@ -18,6 +15,8 @@ use ratatui::{
     Frame, Terminal, buffer::Buffer,
 };
 use std::io;
+use crate::sequence::FixedTimeNoteSequence;
+use crate::track::Track;
 
 // Custom widget to render only the grid part without controls
 struct GridOnlyWidget {
@@ -194,15 +193,19 @@ pub struct RoscoTuiApp {
     synth_params: SynthParameters,
     
     // Sequencer State
+    #[allow(dead_code)]
     tracks: Vec<Track<FixedTimeNoteSequence>>,
     
     // Transport State
+    #[allow(dead_code)]
     transport: TransportState,
     
     // Configuration
+    #[allow(dead_code)]
     config: TuiConfig,
-    
+
     // Event handling
+    #[allow(dead_code)]
     event_handler: EventHandler,
 }
 
@@ -658,12 +661,12 @@ impl RoscoTuiApp {
         Ok(())
     }
     
-    fn send_parameter_update(&mut self) -> Result<(), TuiError> {
-        if let Some(_bridge) = &mut self.audio_bridge {
-            // TODO: Send parameter updates to audio thread
-        }
-        Ok(())
-    }
+    // fn send_parameter_update(&mut self) -> Result<(), TuiError> {
+    //     if let Some(_bridge) = &mut self.audio_bridge {
+    //         // TODO: Send parameter updates to audio thread
+    //     }
+    //     Ok(())
+    // }
     
     fn send_parameter_update_real_time(&mut self, update: crate::tui::audio_bridge::ParameterUpdate) -> Result<(), TuiError> {
         if let Some(bridge) = &mut self.audio_bridge {

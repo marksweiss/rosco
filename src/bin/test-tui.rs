@@ -9,7 +9,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Test creating TUI app
     println!("Creating TUI app...");
-    let app = RoscoTuiApp::new()?;
+    RoscoTuiApp::new()?;
     println!("TUI app created successfully!");
     
     // Test individual components

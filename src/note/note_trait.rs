@@ -1,4 +1,4 @@
-pub(crate) trait BuilderWrapper<NoteType> {
+pub trait BuilderWrapper<NoteType> {
     fn new() -> NoteType;
 }
 

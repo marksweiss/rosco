@@ -562,7 +562,7 @@ impl Parser {
         tokens
     }
 
-    pub fn parse(&mut self) -> Result<TrackGrid<FixedTimeNoteSequence>, String> {
+    pub(crate) fn parse(&mut self) -> Result<TrackGrid<FixedTimeNoteSequence>, String> {
         let script = self.parse_script()?;
         self.build_track_grid(script)
     }
@@ -1219,7 +1219,7 @@ impl NoteDeclaration {
     }
 }
 
-pub fn parse_dsl(input: &str) -> Result<TrackGrid<FixedTimeNoteSequence>, String> {
+pub(crate) fn parse_dsl(input: &str) -> Result<TrackGrid<FixedTimeNoteSequence>, String> {
     let mut parser = Parser::new(input);
     parser.parse()
 }

@@ -7,19 +7,16 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use atomic_float::AtomicF32;
 
 use crate::audio_gen::oscillator::{OscillatorTables, Waveform, get_sample, get_gaussian_noise_sample};
-use crate::audio_gen::get_sample::get_note_sample;
-use crate::note::playback_note::{PlaybackNote, PlaybackNoteBuilder, NoteType};
-use crate::note::note::{Note, NoteBuilder};
-use crate::note::scales::WesternPitch;
 use crate::common::constants::SAMPLE_RATE;
 use crate::tui::audio_bridge::{ParameterUpdate, AudioFeedback};
-use crate::tui::track_bridge::TrackData;
 use crate::tui::TuiError;
 
 /// Real-time audio engine that integrates with the TUI
 pub struct AudioEngine {
     // Control channels
+    #[allow(dead_code)]
     parameter_rx: Receiver<ParameterUpdate>,
+    #[allow(dead_code)]
     feedback_tx: Sender<AudioFeedback>,
     
     // Audio thread control
