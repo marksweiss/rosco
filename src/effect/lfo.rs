@@ -6,7 +6,7 @@ use crate::common::constants::{DEFAULT_LFO_AMPLITUDE, SAMPLE_RATE};
 
 #[allow(dead_code)]
 #[derive(Builder, Clone, Debug, PartialEq)]
-pub(crate) struct LFO {
+pub(crate) struct Lfo {
     #[builder(default = "SAMPLE_RATE / 10.0", setter(custom))]
     pub(crate) frequency: f32,
 
@@ -23,7 +23,7 @@ pub(crate) struct LFO {
 }
 
 #[allow(dead_code)]
-impl LFOBuilder {
+impl LfoBuilder {
     pub(crate) fn frequency(&mut self, frequency: f32) -> &mut Self {
         if frequency <= 0.0 {
             panic!("LFO frequency must be greater than 0.0");
@@ -44,7 +44,7 @@ impl LFOBuilder {
     }
 }
 
-impl LFO {
+impl Lfo {
     #[allow(dead_code)]
     pub(crate) fn apply_effect(&self, mut sample: f32, sample_count: u64) -> f32 {
         for waveform in self.waveforms.clone() {
@@ -66,6 +66,6 @@ impl LFO {
 }
 
 #[allow(dead_code)]
-pub(crate) fn default_lfo() -> LFO {
-    LFOBuilder::default().build().unwrap()
+pub(crate) fn default_lfo() -> Lfo {
+    LfoBuilder::default().build().unwrap()
 }

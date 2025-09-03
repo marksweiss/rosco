@@ -5,8 +5,8 @@ use regex;
 use crate::audio_gen::oscillator::Waveform;
 use crate::effect::delay::DelayBuilder;
 use crate::effect::flanger::{FlangerBuilder};
-use crate::effect::lfo::{LFOBuilder};
-use crate::envelope::envelope::{EnvelopeBuilder};
+use crate::effect::lfo::{LfoBuilder};
+use crate::envelope::{EnvelopeBuilder};
 use crate::envelope::envelope_pair::EnvelopePair;
 use crate::filter::low_pass_filter::{LowPassFilterBuilder};
 use crate::meter::durations::{DurationType};
@@ -157,7 +157,7 @@ pub struct FlangerDef {
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct LFODef {
+pub struct LfoDef {
     pub freq: f32,
     pub amp: f32,
     pub waveforms: Vec<WaveformType>,
@@ -176,7 +176,7 @@ pub struct FilterDef {
 pub enum EffectDef {
     Delay(DelayDef),
     Flanger(FlangerDef),
-    LFO(LFODef),
+    LFO(LfoDef),
     Filter(FilterDef),
 }
 
@@ -754,7 +754,7 @@ impl Parser {
         self.expect("waveforms")?;
         let waveforms = self.parse_waveforms()?;
 
-        Ok(EffectDef::LFO(LFODef {
+        Ok(EffectDef::LFO(LfoDef {
             freq,
             amp,
             waveforms,
@@ -1050,7 +1050,7 @@ impl Parser {
                     let waveforms: Vec<Waveform> = lfo_def.waveforms.iter()
                         .map(|w| w.to_waveform())
                         .collect();
-                    let lfo = LFOBuilder::default()
+                    let lfo = LfoBuilder::default()
                         .frequency(lfo_def.freq)
                         .amplitude(lfo_def.amp)
                         .waveforms(waveforms)

@@ -123,7 +123,7 @@ impl SampledNoteBuilder {
         if let Some(file_path) = &self.file_path {
             if !file_path.is_empty() {
                 let sample_data =
-                    crate::audio_gen::audio_gen::read_audio_file(file_path).into_boxed_slice();
+                    crate::audio_gen::read_audio_file(file_path).into_boxed_slice();
                 for sample in sample_data.iter() {
                     sample_buf.push(*sample as f32);
                 }

@@ -21,27 +21,37 @@ static ACTIVE_SAMPLE_MANAGERS: LazyLock<Mutex<HashMap<usize, Vec<SampleManager>>
 static SAMPLE_MANAGER_ID_COUNTER: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 static MAX_NUM_ACTIVE_SAMPLE_MANAGERS: usize = 4;
 
-fn add_sample_manager(id: usize, sm_id: usize, sample_buffer_size: usize,
-        delay_windows: Vec<bool>, num_delay_windows: usize,
-        num_predelay_samples: usize, sample_buffer_read_index: usize,
-        sample_buffer_write_index: usize, init_buffer_index: usize, cur_delay_window:
-        usize, delay_windows_index: usize) {
+struct SampleManagerConfig {
+    id: usize,
+    sm_id: usize,
+    sample_buffer_size: usize,
+    delay_windows: Vec<bool>,
+    num_delay_windows: usize,
+    num_predelay_samples: usize,
+    sample_buffer_read_index: usize,
+    sample_buffer_write_index: usize,
+    init_buffer_index: usize,
+    cur_delay_window: usize,
+    delay_windows_index: usize,
+}
+
+fn add_sample_manager(config: SampleManagerConfig) {
     
     let mut map = ACTIVE_SAMPLE_MANAGERS.lock().unwrap();
-    let sample_managers = map.entry(id).or_insert_with(Vec::new);
+    let sample_managers = map.entry(config.id).or_default();
     sample_managers.push(
         SampleManager {
-            id: sm_id,
-            sample_buffer_size,
-            sample_buffer: Arc::new(RwLock::new(VecDeque::with_capacity(sample_buffer_size))),
-            delay_windows: delay_windows.clone(),
-            num_delay_windows,
-            num_predelay_samples,
-            sample_buffer_read_index: AtomicUsize::new(sample_buffer_read_index),
-            sample_buffer_write_index: AtomicUsize::new(sample_buffer_write_index),
-            init_buffer_index: AtomicUsize::new(init_buffer_index),
-            cur_delay_window: AtomicUsize::new(cur_delay_window),
-            delay_windows_index: AtomicUsize::new(delay_windows_index),
+            id: config.sm_id,
+            sample_buffer_size: config.sample_buffer_size,
+            sample_buffer: Arc::new(RwLock::new(VecDeque::with_capacity(config.sample_buffer_size))),
+            delay_windows: config.delay_windows.clone(),
+            num_delay_windows: config.num_delay_windows,
+            num_predelay_samples: config.num_predelay_samples,
+            sample_buffer_read_index: AtomicUsize::new(config.sample_buffer_read_index),
+            sample_buffer_write_index: AtomicUsize::new(config.sample_buffer_write_index),
+            init_buffer_index: AtomicUsize::new(config.init_buffer_index),
+            cur_delay_window: AtomicUsize::new(config.cur_delay_window),
+            delay_windows_index: AtomicUsize::new(config.delay_windows_index),
             is_full: AtomicBool::new(false),
             is_active: AtomicBool::new(true),
             is_pre_delay: AtomicBool::new(true),
@@ -336,12 +346,19 @@ impl DelayBuilder {
         let interval_num_samples = interval_ms as usize * SAMPLES_PER_MS as usize;
         
         // initialize the delay with one active SampleManager
-        add_sample_manager(
-            id, next_sample_manager_id(), duration_num_samples,
-            build_delay_windows(duration_num_samples, interval_num_samples, num_repeats),
-            num_repeats, num_predelay_samples,
-            0, 0, 0, 0, 0
-        );
+        add_sample_manager(SampleManagerConfig {
+            id,
+            sm_id: next_sample_manager_id(),
+            sample_buffer_size: duration_num_samples,
+            delay_windows: build_delay_windows(duration_num_samples, interval_num_samples, num_repeats),
+            num_delay_windows: num_repeats,
+            num_predelay_samples,
+            sample_buffer_read_index: 0,
+            sample_buffer_write_index: 0,
+            init_buffer_index: 0,
+            cur_delay_window: 0,
+            delay_windows_index: 0,
+        });
 
         let mix_complement = 1.0 - mix;
         
@@ -416,15 +433,19 @@ impl Delay {
         // enforce global limit on number of active sample managers
         if push.load(Ordering::SeqCst) &&
                 *SAMPLE_MANAGER_ID_COUNTER.lock().unwrap() < self.num_concurrent_sample_managers {
-            add_sample_manager(
-                self.id,
-                next_sample_manager_id(),
-                self.duration_num_samples,
-                self.delay_windows.clone(),
-                self.num_repeats,
-                self.num_predelay_samples,
-                0, 0, 0, 0, 0
-            );
+            add_sample_manager(SampleManagerConfig {
+                id: self.id,
+                sm_id: next_sample_manager_id(),
+                sample_buffer_size: self.duration_num_samples,
+                delay_windows: self.delay_windows.clone(),
+                num_delay_windows: self.num_repeats,
+                num_predelay_samples: self.num_predelay_samples,
+                sample_buffer_read_index: 0,
+                sample_buffer_write_index: 0,
+                init_buffer_index: 0,
+                cur_delay_window: 0,
+                delay_windows_index: 0,
+            });
         }
         push.store(false, Ordering::SeqCst);
 

@@ -9,7 +9,7 @@ use crate::envelope::envelope_pair::EnvelopePair;
 // starting from (0, 0) and connecting from their to start, and connecting from the position
 // of the end of sustain to the end of the note, which is the release.
 #[allow(dead_code)]
-#[derive(Builder, Clone, Copy, Debug, Hash)]
+#[derive(Builder, Clone, Copy, Debug, Hash, PartialEq, Eq)]
 #[builder(build_fn(validate = "Self::validate"))]
 pub(crate) struct Envelope {
     #[builder(default = "EnvelopePair(0.0, 0.0)")]
@@ -117,16 +117,6 @@ impl Envelope {
     }
 }
 
-impl PartialEq for Envelope {
-    fn eq(&self, other: &Self) -> bool {
-        self.start == other.start &&
-            self.attack == other.attack &&
-            self.decay == other.decay &&
-            self.sustain == other.sustain &&
-            self.release == other.release
-    }
-}
-impl Eq for Envelope {}
 
 #[cfg(test)]
 mod test_envelope {

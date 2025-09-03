@@ -1,8 +1,8 @@
 use derive_builder::Builder;
 use crate::effect::delay::Delay;
-use crate::envelope::envelope::Envelope;
+use crate::envelope::Envelope;
 use crate::effect::flanger::Flanger;
-use crate::effect::lfo::LFO;
+use crate::effect::lfo::Lfo;
 use crate::filter::low_pass_filter::LowPassFilter;
 use crate::note::constants;
 use crate::note::note;
@@ -46,7 +46,7 @@ pub struct PlaybackNote {
     pub(crate) envelopes: Vec<Envelope>,
 
     #[builder(default = "Vec::new()")]
-    pub(crate) lfos: Vec<LFO>,
+    pub(crate) lfos: Vec<Lfo>,
 
     #[builder(default = "Vec::new()")]
     pub(crate) flangers: Vec<Flanger>,

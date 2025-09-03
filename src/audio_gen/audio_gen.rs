@@ -21,7 +21,7 @@ pub(crate) fn gen_note_stream(playback_note: PlaybackNote, oscillator_tables: Os
     let device = host.default_output_device().expect("No output device available");
     let config = device.default_output_config().unwrap();
 
-    gen_note_stream_impl::<f32>(&device, &config.into(), oscillator_tables, playback_note);
+    gen_note_stream_impl(&device, &config.into(), oscillator_tables, playback_note);
 }
 
 #[allow(dead_code)]
@@ -42,7 +42,7 @@ pub(crate) fn gen_notes_stream(playback_notes: Vec<PlaybackNote>,
         .unwrap();
     let window_duration_ms = (window_end_time_ms - window_start_time_ms).floor() as u64;
     
-    gen_notes_stream_impl::<f32>(&device, &config.into(), oscillator_tables, playback_notes,
+    gen_notes_stream_impl(&device, &config.into(), oscillator_tables, playback_notes,
                                  window_duration_ms);
 }
 
@@ -66,10 +66,8 @@ pub(crate) fn write_audio_file(file_path: &str, samples: Vec<f32>) {
 
 //noinspection Duplicates
 #[allow(dead_code)]
-fn gen_note_stream_impl<T>(device: &cpal::Device, config: &cpal::StreamConfig,
+fn gen_note_stream_impl(device: &cpal::Device, config: &cpal::StreamConfig,
                            oscillator_tables: OscillatorTables,  mut playback_note: PlaybackNote)
-where
-    T: cpal::Sample + cpal::SizedSample + cpal::FromSample<f32>,
 {
     let mut sample_count = 0;
     let mut sample_clock = -1.0 / SAMPLE_RATE;
@@ -100,7 +98,7 @@ where
 
 //noinspection Duplicates
 #[allow(dead_code)]
-fn gen_notes_stream_impl<T>(device: &cpal::Device, config: &cpal::StreamConfig,
+fn gen_notes_stream_impl(device: &cpal::Device, config: &cpal::StreamConfig,
                             oscillator_tables: OscillatorTables, mut playback_notes: Vec<PlaybackNote>,
                             note_duration_ms: u64)
 {

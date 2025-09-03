@@ -1,8 +1,8 @@
 use derive_builder::Builder;
 use crate::effect::delay::Delay;
-use crate::envelope::envelope::Envelope;
+use crate::envelope::Envelope;
 use crate::effect::flanger::Flanger;
-use crate::effect::lfo::LFO;
+use crate::effect::lfo::Lfo;
 
 #[derive(Builder, Clone, Debug, PartialEq)]
 pub(crate) struct TrackEffects {
@@ -12,7 +12,7 @@ pub(crate) struct TrackEffects {
 
     #[allow(dead_code)]
     #[builder(default = "Vec::new()")]
-    pub(crate) lfos: Vec<LFO>,
+    pub(crate) lfos: Vec<Lfo>,
 
     #[allow(dead_code)]
     #[builder(default = "Vec::new()")]

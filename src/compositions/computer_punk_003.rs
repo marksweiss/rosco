@@ -1,10 +1,10 @@
-use crate::audio_gen::{audio_gen, oscillator};
+use crate::audio_gen::oscillator;
 use crate::audio_gen::oscillator::Waveform;
 use crate::composition::comp_utils;
 use crate::effect::delay::DelayBuilder;
 use crate::effect::flanger::FlangerBuilder;
-use crate::effect::lfo::LFOBuilder;
-use crate::envelope::envelope::EnvelopeBuilder;
+use crate::effect::lfo::LfoBuilder;
+use crate::envelope::EnvelopeBuilder;
 use crate::envelope::envelope_pair::EnvelopePair;
 use crate::note::note_pool::NotePool;
 use crate::note::playback_note::{PlaybackNote, PlaybackNoteBuilder};
@@ -51,7 +51,7 @@ pub(crate) fn play() {
         .mix(0.5)
         .build().unwrap();
     // LFOs
-    let lfo = LFOBuilder::default()
+    let lfo = LfoBuilder::default()
         .waveforms(vec![Waveform::Sine])
         .frequency(110.0)
         .amplitude(0.5)
@@ -176,6 +176,6 @@ pub(crate) fn play() {
     });
 
     for playback_notes in rx.iter() {
-        audio_gen::gen_notes_stream(playback_notes, oscillator::OscillatorTables::new());
+        crate::audio_gen::gen_notes_stream(playback_notes, oscillator::OscillatorTables::new());
     }
 }

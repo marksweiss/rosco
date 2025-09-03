@@ -1,10 +1,10 @@
-use crate::{audio_gen, common, midi, note};
-use crate::audio_gen::audio_gen::gen_notes_stream;
+use crate::{common, midi, note};
+use crate::audio_gen::gen_notes_stream;
 use crate::audio_gen::oscillator::{OscillatorTables, Waveform};
 use crate::effect::delay::Delay;
 use crate::effect::flanger::Flanger;
-use crate::effect::lfo::LFO;
-use crate::envelope::envelope::Envelope;
+use crate::effect::lfo::Lfo;
+use crate::envelope::Envelope;
 use crate::note::playback_note::{NoteType, PlaybackNote};
 use crate::sequence::note_sequence_trait::{AppendNote, AppendNotes, BuilderWrapper, IterMutWrapper,
     NextNotes, SetCurPosition};
@@ -25,7 +25,7 @@ pub(crate) fn build_sampled_playback_note(sampled_note_pool: &mut NotePool<Sampl
                                           playback_note_pool: &mut NotePool<PlaybackNote>,
                                           file_path: &str, volume: f32, start_time: f32,
                                           envelopes: Vec<Envelope>, flangers: Vec<Flanger>,
-                                          delays: Vec<Delay>, lfos: Vec<LFO>) -> PlaybackNote {
+                                          delays: Vec<Delay>, lfos: Vec<Lfo>) -> PlaybackNote {
     let sample_buf: SampleBuf = load_sample_data(file_path);
     let mut sampled_note = sampled_note_pool.acquire().unwrap();
     sampled_note.volume = volume;
@@ -49,7 +49,7 @@ pub(crate) fn build_sampled_playback_note(sampled_note_pool: &mut NotePool<Sampl
 }
 
 pub(crate) fn load_sample_data(file_path: &str) -> SampleBuf {
-    let sample_data= audio_gen::audio_gen::read_audio_file(file_path).into_boxed_slice();
+    let sample_data = crate::audio_gen::read_audio_file(file_path).into_boxed_slice();
     let mut sample_buf: Vec<f32> = Vec::with_capacity(note::sampled_note::BUF_STORAGE_SIZE);
     for sample in  sample_data[..].iter() {
         sample_buf.push(*sample as f32);
@@ -66,7 +66,7 @@ pub(crate) fn load_midi_file_to_tracks<
     SequenceBuilderType: BuilderWrapper<SequenceType>
 >
 (file_path: &str, waveforms: Vec<Waveform>, envelopes: Vec<Envelope>, flangers: Vec<Flanger>,
- delays: Vec<Delay>, lfo: LFO, volume: f32) -> Vec<Track<SequenceType>> {
+ delays: Vec<Delay>, lfo: Lfo, volume: f32) -> Vec<Track<SequenceType>> {
     let mut midi_time_tracks =
         midi::midi::midi_file_to_tracks::<SequenceType, SequenceBuilderType>(
             file_path, NoteType::Oscillator);

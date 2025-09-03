@@ -81,7 +81,7 @@ pub(crate) fn generate_triangle_table() -> Vec<f32> {
     table
 }
 
-pub(crate) fn get_sample(table: &Vec<f32>, frequency: f32, sample_count: u64) -> f32 {
+pub(crate) fn get_sample(table: &[f32], frequency: f32, sample_count: u64) -> f32 {
     table[((frequency * sample_count as f32) / SAMPLE_COUNT_FACTOR) as usize % NUM_TABLE_SAMPLES]
 }
 

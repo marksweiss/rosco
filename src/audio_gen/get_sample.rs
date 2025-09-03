@@ -63,7 +63,7 @@ pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &Osc
     }
 }
 
-pub(crate) fn get_notes_sample(playback_notes: &mut Vec<PlaybackNote>,
+pub(crate) fn get_notes_sample(playback_notes: &mut [PlaybackNote],
                                oscillator_tables: &OscillatorTables,
                                sample_position: f32, sample_count: u64) -> (f32, f32) {
     let mut out_sample_l = 0.0;
