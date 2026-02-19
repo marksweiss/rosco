@@ -14,6 +14,12 @@ pub struct WaveformSelector {
     pub focused: bool,
 }
 
+impl Default for WaveformSelector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WaveformSelector {
     pub fn new() -> Self {
         Self {
@@ -80,7 +86,7 @@ impl Widget for WaveformSelector {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum FilterType {
     LowPass,
     HighPass,
@@ -94,6 +100,12 @@ pub struct FilterTypeSelector {
     pub selected: usize,
     pub expanded: bool,
     pub focused: bool,
+}
+
+impl Default for FilterTypeSelector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FilterTypeSelector {

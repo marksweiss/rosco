@@ -237,14 +237,14 @@ impl SequencerGrid {
             let end_step = selection.start.step.max(selection.end.step) as usize;
             let start_track = selection.start.track.min(selection.end.track) as usize;
             let end_track = selection.start.track.max(selection.end.track) as usize;
-            
+
             // For single track selection, return the steps
             if start_track == end_track && start_track < self.tracks.len() {
                 return Some(
                     self.tracks[start_track].steps[start_step..=end_step].to_vec()
                 );
             }
-            
+
             // For multi-track selection, flatten the selection
             // This could be extended to support more complex multi-track patterns
             let mut pattern = Vec::new();
@@ -255,11 +255,18 @@ impl SequencerGrid {
                     );
                 }
             }
-            
+
             if !pattern.is_empty() {
                 return Some(pattern);
             }
         }
+
+        // If no selection, copy the entire current track
+        let track_idx = self.cursor.track as usize;
+        if track_idx < self.tracks.len() {
+            return Some(self.tracks[track_idx].steps.clone());
+        }
+
         None
     }
     
@@ -453,7 +460,7 @@ impl Widget for SequencerGrid {
             } else {
                 style
             };
-            buf.set_string(x, y_steps, &format!("{}", track.track_number), track_style);
+            buf.set_string(x, y_steps, format!("{}", track.track_number), track_style);
             let mut step_x = x + 2;
             
             // Step cells - show as many steps as will fit, up to 16
@@ -505,7 +512,7 @@ impl Widget for SequencerGrid {
                 
                 // Render step cell
                 let symbol = if step.enabled { "●" } else { "·" };
-                buf.set_string(step_x, y_steps, &format!(" {} ", symbol), step_style);
+                buf.set_string(step_x, y_steps, format!(" {} ", symbol), step_style);
                 
                 // Render frequency cell - match the step cell format for alignment
                 let freq_text = if step.enabled {
@@ -555,7 +562,7 @@ impl Widget for SequencerGrid {
             let visible_steps = self.steps_per_track.min(max_steps);
             
             for step in 1..=visible_steps {
-                buf.set_string(x, step_numbers_y, &format!("{:^4}", step), style);
+                buf.set_string(x, step_numbers_y, format!("{:^4}", step), style);
                 x += 4;
             }
         }

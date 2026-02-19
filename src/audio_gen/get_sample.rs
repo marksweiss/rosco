@@ -10,7 +10,8 @@ pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &Osc
     // Set to stereo output if either the note or the track is set to stereo
     let mut num_channels = playback_note.num_channels;
     if num_channels == 1 {
-        num_channels = playback_note.track_effects.num_channels;
+        let track_effects = playback_note.track_effects.lock().unwrap();
+        num_channels = track_effects.num_channels;
     }
     
     match playback_note.note_type {

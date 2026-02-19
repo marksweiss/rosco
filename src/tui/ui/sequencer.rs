@@ -28,6 +28,12 @@ pub enum SequencerAction {
     SelectionCleared,
 }
 
+impl Default for SequencerPanel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SequencerPanel {
     pub fn new() -> Self {
         let mut pattern_manager = PatternManager::new();
@@ -133,18 +139,18 @@ impl SequencerPanel {
             }
             
             // Quick track selection (A-H for tracks 1-8)
-            KeyCode::Char(c) if c >= 'a' && c <= 'h' => {
+            KeyCode::Char(c) if ('a'..='h').contains(&c) => {
                 let track_idx = (c as u8 - b'a').min(7);
                 self.grid.cursor.track = track_idx;
             }
-            KeyCode::Char(c) if c >= 'A' && c <= 'H' => {
+            KeyCode::Char(c) if ('A'..='H').contains(&c) => {
                 let track_idx = (c as u8 - b'A').min(7);
                 self.grid.cursor.track = track_idx;
             }
             
             // Quick step selection (1-9, 0 for step 10)
-            KeyCode::Char(c) if c >= '1' && c <= '9' => {
-                let step_idx = (c as u8 - b'1') as u8;
+            KeyCode::Char(c) if ('1'..='9').contains(&c) => {
+                let step_idx = c as u8 - b'1';
                 if step_idx < self.grid.steps_per_track as u8 {
                     self.grid.cursor.step = step_idx;
                 }

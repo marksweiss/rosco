@@ -1,6 +1,8 @@
 use crate::tui::{TuiError, audio_bridge::AudioBridge, config::TuiConfig, events::EventHandler};
 use crate::tui::ui::{SynthesizerPanel, SequencerPanel};
+use crate::tui::ui::synthesizer::SynthesizerSubSection;
 use crate::audio_gen;
+use crate::filter::filter_manager::FilterManager;
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent},
@@ -165,6 +167,8 @@ pub enum SynthSection {
 #[derive(Debug)]
 pub struct UiState {
     pub show_help: bool,
+    pub show_pattern_browser: bool,
+    pub pattern_browser_selection: usize,
     pub status_message: Option<String>,
 }
 
@@ -172,6 +176,8 @@ impl Default for UiState {
     fn default() -> Self {
         Self {
             show_help: false,
+            show_pattern_browser: false,
+            pattern_browser_selection: 0,
             status_message: None,
         }
     }
@@ -191,6 +197,9 @@ pub struct RoscoTuiApp {
     
     // Synthesizer State
     synth_params: SynthParameters,
+    
+    // Filter Management
+    filter_manager: FilterManager,
     
     // Sequencer State
     #[allow(dead_code)]
@@ -212,16 +221,26 @@ pub struct RoscoTuiApp {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SynthParameters {
     pub oscillator_waveform: audio_gen::Waveform,
-    pub oscillator_frequency: f32,
     pub oscillator_volume: f32,
+    pub filter_type: crate::tui::ui::widgets::selector::FilterType,
+    pub filter_cutoff: f32,
+    pub filter_center_frequency: f32,
+    pub filter_bandwidth: f32,
+    pub filter_resonance: f32,
+    pub filter_mix: f32,
 }
 
 impl Default for SynthParameters {
     fn default() -> Self {
         Self {
             oscillator_waveform: audio_gen::Waveform::Sine,
-            oscillator_frequency: 440.0,
             oscillator_volume: 0.75,
+            filter_type: crate::tui::ui::widgets::selector::FilterType::LowPass,
+            filter_cutoff: 1000.0,
+            filter_center_frequency: 1000.0,
+            filter_bandwidth: 200.0,
+            filter_resonance: 0.3,
+            filter_mix: 0.8,
         }
     }
 }
@@ -282,6 +301,16 @@ impl RoscoTuiApp {
         let sequencer_panel = SequencerPanel::new();
         println!("Sequencer panel created");
         
+        println!("Creating filter manager...");
+        let mut filter_manager = FilterManager::new();
+        // Initialize with default filter settings
+        filter_manager.update_filter_type(crate::tui::ui::widgets::selector::FilterType::LowPass);
+        filter_manager.update_frequency(1000.0);
+        filter_manager.update_bandwidth(200.0);
+        filter_manager.update_resonance(0.3);
+        filter_manager.update_mix(0.8);
+        println!("Filter manager created");
+        
         println!("Creating synth parameters...");
         let synth_params = SynthParameters::default();
         println!("Synth parameters created");
@@ -298,6 +327,7 @@ impl RoscoTuiApp {
             sequencer_panel,
             audio_bridge: None,
             synth_params,
+            filter_manager,
             tracks: Vec::new(),
             transport,
             config,
@@ -308,7 +338,7 @@ impl RoscoTuiApp {
     pub async fn run(&mut self) -> Result<(), TuiError> {
         // Initialize audio bridge with real audio engine
         println!("Initializing audio bridge with real audio engine...");
-        match crate::tui::audio_bridge::AudioBridge::new() {
+        match AudioBridge::new() {
             Ok(bridge) => {
                 self.audio_bridge = Some(bridge);
                 println!("Audio bridge initialized successfully");
@@ -398,31 +428,81 @@ impl RoscoTuiApp {
         self.ui_state.status_message = None;
         
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
+            KeyCode::Esc => {
+                // Close overlays first, then quit
+                if self.ui_state.show_pattern_browser {
+                    self.ui_state.show_pattern_browser = false;
+                    self.ui_state.status_message = Some("Pattern browser closed".to_string());
+                    return Ok(false);
+                } else if self.ui_state.show_help {
+                    self.ui_state.show_help = false;
+                    return Ok(false);
+                } else {
+                    return Ok(true);
+                }
+            }
+            KeyCode::Char('q') => return Ok(true),
             KeyCode::F(1) => self.ui_state.show_help = !self.ui_state.show_help,
-            KeyCode::Tab => self.cycle_focus(),
+            KeyCode::F(2) => {
+                // F2: Save current track as a new pattern
+                self.save_current_track_as_pattern();
+            }
+            KeyCode::F(3) => {
+                // F3: Toggle pattern browser
+                self.ui_state.show_pattern_browser = !self.ui_state.show_pattern_browser;
+                if self.ui_state.show_pattern_browser {
+                    self.ui_state.pattern_browser_selection = 0;
+                    self.ui_state.status_message = Some("Pattern browser opened. Use arrows to navigate, Enter to load, Esc to close.".to_string());
+                } else {
+                    self.ui_state.status_message = Some("Pattern browser closed".to_string());
+                }
+            }
+            KeyCode::Tab => {
+                if !self.ui_state.show_pattern_browser {
+                    self.cycle_focus();
+                }
+            }
             KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
-                self.handle_navigation(key)?;
+                if self.ui_state.show_pattern_browser {
+                    self.handle_pattern_browser_navigation(key)?;
+                } else {
+                    self.handle_navigation(key)?;
+                }
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
-                self.handle_activation()?;
+                if self.ui_state.show_pattern_browser {
+                    self.handle_pattern_browser_selection()?;
+                } else {
+                    self.handle_activation()?;
+                }
             }
             // Quick section switching with number keys
             KeyCode::Char('1') => {
                 self.current_focus = FocusArea::Synthesizer(SynthSection::Oscillator);
+                self.synthesizer_panel.current_section = crate::tui::ui::synthesizer::SynthesizerSubSection::Oscillator(crate::tui::ui::synthesizer::OscillatorSubSection::Waveform);
+                // Sync the individual control's sub_focus
+                self.synthesizer_panel.oscillator.sub_focus = crate::tui::ui::synthesizer::OscillatorSubSection::Waveform;
                 self.ui_state.status_message = Some("Oscillator section".to_string());
             }
             KeyCode::Char('2') => {
                 self.current_focus = FocusArea::Synthesizer(SynthSection::Filter);
-                self.ui_state.status_message = Some("Filter section".to_string());
+                self.synthesizer_panel.current_section = crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Type);
+                // Sync the individual control's sub_focus
+                self.synthesizer_panel.filter.sub_focus = crate::tui::ui::synthesizer::FilterSubSection::Type;
+                self.ui_state.status_message = Some("Filter section focused".to_string());
             }
             KeyCode::Char('3') => {
                 self.current_focus = FocusArea::Synthesizer(SynthSection::Envelope);
-                self.ui_state.status_message = Some("Envelope section".to_string());
+                self.synthesizer_panel.current_section = crate::tui::ui::synthesizer::SynthesizerSubSection::Envelope(crate::tui::ui::synthesizer::EnvelopeSubSection::AttackTime);
+                // Sync the individual control's sub_focus
+                self.synthesizer_panel.envelope.sub_focus = crate::tui::ui::synthesizer::EnvelopeSubSection::AttackTime;
+                self.ui_state.status_message = Some("Envelope section focused".to_string());
             }
             KeyCode::Char('4') => {
                 self.current_focus = FocusArea::Synthesizer(SynthSection::Effects);
-                self.ui_state.status_message = Some("Effects section".to_string());
+                self.synthesizer_panel.current_section = crate::tui::ui::synthesizer::SynthesizerSubSection::Effects(crate::tui::ui::synthesizer::EffectsSubSection::DelayTime);
+                self.synthesizer_panel.effects.sub_focus = crate::tui::ui::synthesizer::EffectsSubSection::DelayTime;
+                self.ui_state.status_message = Some("Effects section focused".to_string());
             }
             KeyCode::Char('5') => {
                 self.current_focus = FocusArea::Sequencer;
@@ -442,17 +522,57 @@ impl RoscoTuiApp {
             }
             // Fine adjustment with +/- keys
             KeyCode::Char('+') | KeyCode::Char('=') => {
-                if let FocusArea::Synthesizer(SynthSection::Oscillator) = &self.current_focus {
+                if let FocusArea::Synthesizer(_section) = &self.current_focus {
                     if let Some(update) = self.synthesizer_panel.handle_fine_adjustment(true) {
                         // Update local state for display
                         match &update {
-                            crate::tui::audio_bridge::ParameterUpdate::OscillatorFrequency(freq) => {
-                                self.synth_params.oscillator_frequency = *freq;
-                                self.ui_state.status_message = Some(format!("Freq increased to {:.1} Hz", freq));
-                            }
                             crate::tui::audio_bridge::ParameterUpdate::OscillatorVolume(vol) => {
                                 self.synth_params.oscillator_volume = *vol;
                                 self.ui_state.status_message = Some(format!("Volume increased to {:.0}%", vol * 100.0));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::FilterCutoff(cutoff) => {
+                                self.synth_params.filter_cutoff = *cutoff;
+                                self.ui_state.status_message = Some(format!("Cutoff increased to {:.0} Hz", cutoff));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::FilterCenterFrequency(center_freq) => {
+                                self.synth_params.filter_center_frequency = *center_freq;
+                                self.ui_state.status_message = Some(format!("Center frequency increased to {:.0} Hz", center_freq));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::FilterBandwidth(bandwidth) => {
+                                self.synth_params.filter_bandwidth = *bandwidth;
+                                self.ui_state.status_message = Some(format!("Bandwidth increased to {:.0} Hz", bandwidth));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::FilterResonance(resonance) => {
+                                self.synth_params.filter_resonance = *resonance;
+                                self.ui_state.status_message = Some(format!("Resonance increased to {:.0}%", resonance * 100.0));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::FilterMix(mix) => {
+                                self.synth_params.filter_mix = *mix;
+                                self.ui_state.status_message = Some(format!("Mix increased to {:.0}%", mix * 100.0));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeAttackTime(val) => {
+                                self.ui_state.status_message = Some(format!("Attack Time increased to {:.3}s", val));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeAttackLevel(val) => {
+                                self.ui_state.status_message = Some(format!("Attack Level increased to {:.0}%", val * 100.0));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeDecayTime(val) => {
+                                self.ui_state.status_message = Some(format!("Decay Time increased to {:.3}s", val));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeDecayLevel(val) => {
+                                self.ui_state.status_message = Some(format!("Decay Level increased to {:.0}%", val * 100.0));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeSustainTime(val) => {
+                                self.ui_state.status_message = Some(format!("Sustain Time increased to {:.3}s", val));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeSustainLevel(val) => {
+                                self.ui_state.status_message = Some(format!("Sustain Level increased to {:.0}%", val * 100.0));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeReleaseTime(val) => {
+                                self.ui_state.status_message = Some(format!("Release Time increased to {:.3}s", val));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeReleaseLevel(val) => {
+                                self.ui_state.status_message = Some(format!("Release Level increased to {:.0}%", val * 100.0));
                             }
                             _ => {}
                         }
@@ -461,17 +581,57 @@ impl RoscoTuiApp {
                 }
             }
             KeyCode::Char('-') => {
-                if let FocusArea::Synthesizer(SynthSection::Oscillator) = &self.current_focus {
+                if let FocusArea::Synthesizer(_section) = &self.current_focus {
                     if let Some(update) = self.synthesizer_panel.handle_fine_adjustment(false) {
                         // Update local state for display
                         match &update {
-                            crate::tui::audio_bridge::ParameterUpdate::OscillatorFrequency(freq) => {
-                                self.synth_params.oscillator_frequency = *freq;
-                                self.ui_state.status_message = Some(format!("Freq decreased to {:.1} Hz", freq));
-                            }
                             crate::tui::audio_bridge::ParameterUpdate::OscillatorVolume(vol) => {
                                 self.synth_params.oscillator_volume = *vol;
-                                self.ui_state.status_message = Some(format!("Volume decreased to {:.0}%", vol * 100.0));
+                                // self.ui_state.status_message = Some(format!("Volume decreased to {:.0}%", vol * 100.0));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::FilterCutoff(cutoff) => {
+                                self.synth_params.filter_cutoff = *cutoff;
+                                // self.ui_state.status_message = Some(format!("Cutoff decreased to {:.0} Hz", cutoff));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::FilterCenterFrequency(center_freq) => {
+                                self.synth_params.filter_center_frequency = *center_freq;
+                                // self.ui_state.status_message = Some(format!("Center frequency decreased to {:.0} Hz", center_freq));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::FilterBandwidth(bandwidth) => {
+                                self.synth_params.filter_bandwidth = *bandwidth;
+                                // self.ui_state.status_message = Some(format!("Bandwidth decreased to {:.0} Hz", bandwidth));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::FilterResonance(resonance) => {
+                                self.synth_params.filter_resonance = *resonance;
+                                // self.ui_state.status_message = Some(format!("Resonance decreased to {:.0}%", resonance * 100.0));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::FilterMix(mix) => {
+                                self.synth_params.filter_mix = *mix;
+                                // self.ui_state.status_message = Some(format!("Mix decreased to {:.0}%", mix * 100.0));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeAttackTime(_val) => {
+                                // self.ui_state.status_message = Some(format!("Attack Time decreased to {:.3}s", val));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeAttackLevel(_val) => {
+                                // self.ui_state.status_message = Some(format!("Attack Level decreased to {:.0}%", val * 100.0));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeDecayTime(_val) => {
+                                // self.ui_state.status_message = Some(format!("Decay Time decreased to {:.3}s", val));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeDecayLevel(_val) => {
+                                // self.ui_state.status_message = Some(format!("Decay Level decreased to {:.0}%", val * 100.0));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeSustainTime(_val) => {
+                                // self.ui_state.status_message = Some(format!("Sustain Time decreased to {:.3}s", val));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeSustainLevel(_val) => {
+                                // self.ui_state.status_message = Some(format!("Sustain Level decreased to {:.0}%", val * 100.0));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeReleaseTime(_val) => {
+                                // self.ui_state.status_message = Some(format!("Release Time decreased to {:.3}s", val));
+                            }
+                            crate::tui::audio_bridge::ParameterUpdate::EnvelopeReleaseLevel(_val) => {
+                                // self.ui_state.status_message = Some(format!("Release Level decreased to {:.0}%", val * 100.0));
                             }
                             _ => {}
                         }
@@ -480,7 +640,7 @@ impl RoscoTuiApp {
                         self.ui_state.status_message = Some("No fine adjustment available for current control".to_string());
                     }
                 } else {
-                    self.ui_state.status_message = Some("Fine adjustment only works in Oscillator section".to_string());
+                    self.ui_state.status_message = Some("Fine adjustment only works in Synthesizer sections".to_string());
                 }
             }
             // Reset parameter to default with 'r'
@@ -494,14 +654,30 @@ impl RoscoTuiApp {
     
     fn cycle_focus(&mut self) {
         self.current_focus = match self.current_focus {
-            FocusArea::Synthesizer(SynthSection::Oscillator) => FocusArea::Synthesizer(SynthSection::Filter),
-            FocusArea::Synthesizer(SynthSection::Filter) => FocusArea::Synthesizer(SynthSection::Envelope),
-            FocusArea::Synthesizer(SynthSection::Envelope) => FocusArea::Synthesizer(SynthSection::Effects),
+            FocusArea::Synthesizer(SynthSection::Oscillator) => {
+                self.synthesizer_panel.current_section = crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Type);
+                self.synthesizer_panel.filter.sub_focus = crate::tui::ui::synthesizer::FilterSubSection::Type;
+                FocusArea::Synthesizer(SynthSection::Filter)
+            }
+            FocusArea::Synthesizer(SynthSection::Filter) => {
+                self.synthesizer_panel.current_section = crate::tui::ui::synthesizer::SynthesizerSubSection::Envelope(crate::tui::ui::synthesizer::EnvelopeSubSection::AttackTime);
+                self.synthesizer_panel.envelope.sub_focus = crate::tui::ui::synthesizer::EnvelopeSubSection::AttackTime;
+                FocusArea::Synthesizer(SynthSection::Envelope)
+            }
+            FocusArea::Synthesizer(SynthSection::Envelope) => {
+                self.synthesizer_panel.current_section = crate::tui::ui::synthesizer::SynthesizerSubSection::Effects(crate::tui::ui::synthesizer::EffectsSubSection::DelayTime);
+                self.synthesizer_panel.effects.sub_focus = crate::tui::ui::synthesizer::EffectsSubSection::DelayTime;
+                FocusArea::Synthesizer(SynthSection::Effects)
+            }
             FocusArea::Synthesizer(SynthSection::Effects) => FocusArea::Sequencer,
             FocusArea::Sequencer => FocusArea::TrackVolume,
             FocusArea::TrackVolume => FocusArea::TrackPanning,
             FocusArea::TrackPanning => FocusArea::Transport,
-            FocusArea::Transport => FocusArea::Synthesizer(SynthSection::Oscillator),
+            FocusArea::Transport => {
+                self.synthesizer_panel.current_section = crate::tui::ui::synthesizer::SynthesizerSubSection::Oscillator(crate::tui::ui::synthesizer::OscillatorSubSection::Waveform);
+                self.synthesizer_panel.oscillator.sub_focus = crate::tui::ui::synthesizer::OscillatorSubSection::Waveform;
+                FocusArea::Synthesizer(SynthSection::Oscillator)
+            }
         };
     }
     
@@ -534,9 +710,6 @@ impl RoscoTuiApp {
                 for update in updates {
                     // Update local state for display
                     match &update {
-                        crate::tui::audio_bridge::ParameterUpdate::OscillatorFrequency(freq) => {
-                            self.synth_params.oscillator_frequency = *freq;
-                        }
                         crate::tui::audio_bridge::ParameterUpdate::OscillatorVolume(vol) => {
                             self.synth_params.oscillator_volume = *vol;
                         }
@@ -548,13 +721,83 @@ impl RoscoTuiApp {
                     self.send_parameter_update_real_time(update)?;
                 }
             }
-            _ => {
-                // TODO: Handle other synthesizer sections
+            SynthSection::Filter => {
+                let updates = self.synthesizer_panel.handle_input(key_event);
+                for update in updates {
+                    // Update local state for display
+                    match &update {
+                        crate::tui::audio_bridge::ParameterUpdate::FilterType(filter_type) => {
+                            self.synth_params.filter_type = filter_type.clone();
+                            self.filter_manager.update_filter_type(filter_type.clone());
+                        }
+                        crate::tui::audio_bridge::ParameterUpdate::FilterCutoff(cutoff) => {
+                            self.synth_params.filter_cutoff = *cutoff;
+                            self.filter_manager.update_frequency(*cutoff);
+                        }
+                        crate::tui::audio_bridge::ParameterUpdate::FilterCenterFrequency(center_freq) => {
+                            self.synth_params.filter_center_frequency = *center_freq;
+                            self.filter_manager.update_frequency(*center_freq);
+                        }
+                        crate::tui::audio_bridge::ParameterUpdate::FilterBandwidth(bandwidth) => {
+                            self.synth_params.filter_bandwidth = *bandwidth;
+                            self.filter_manager.update_bandwidth(*bandwidth);
+                        }
+                        crate::tui::audio_bridge::ParameterUpdate::FilterResonance(resonance) => {
+                            self.synth_params.filter_resonance = *resonance;
+                            self.filter_manager.update_resonance(*resonance);
+                        }
+                        crate::tui::audio_bridge::ParameterUpdate::FilterMix(mix) => {
+                            self.synth_params.filter_mix = *mix;
+                            self.filter_manager.update_mix(*mix);
+                        }
+                        _ => {}
+                    }
+                    self.send_parameter_update_real_time(update)?;
+                }
+                
+                // Apply filter to all tracks
+                self.apply_filter_to_tracks();
+            }
+            SynthSection::Envelope => {
+                let updates = self.synthesizer_panel.handle_input(key_event);
+                for update in updates {
+                    // Update envelope parameter feedback
+                    self.ui_state.status_message = match &update {
+                        crate::tui::audio_bridge::ParameterUpdate::EnvelopeAttackTime(val) => Some(format!("Attack Time: {:.3}s", val)),
+                        crate::tui::audio_bridge::ParameterUpdate::EnvelopeAttackLevel(val) => Some(format!("Attack Level: {:.0}%", val * 100.0)),
+                        crate::tui::audio_bridge::ParameterUpdate::EnvelopeDecayTime(val) => Some(format!("Decay Time: {:.3}s", val)),
+                        crate::tui::audio_bridge::ParameterUpdate::EnvelopeDecayLevel(val) => Some(format!("Decay Level: {:.0}%", val * 100.0)),
+                        crate::tui::audio_bridge::ParameterUpdate::EnvelopeSustainTime(val) => Some(format!("Sustain Time: {:.3}s", val)),
+                        crate::tui::audio_bridge::ParameterUpdate::EnvelopeSustainLevel(val) => Some(format!("Sustain Level: {:.0}%", val * 100.0)),
+                        crate::tui::audio_bridge::ParameterUpdate::EnvelopeReleaseTime(val) => Some(format!("Release Time: {:.3}s", val)),
+                        crate::tui::audio_bridge::ParameterUpdate::EnvelopeReleaseLevel(val) => Some(format!("Release Level: {:.0}%", val * 100.0)),
+                        _ => None
+                    };
+                    self.send_parameter_update_real_time(update)?;
+                }
+            }
+            SynthSection::Effects => {
+                let updates = self.synthesizer_panel.handle_input(key_event);
+                for update in updates {
+                    // Update effect parameter feedback
+                    self.ui_state.status_message = match &update {
+                        crate::tui::audio_bridge::ParameterUpdate::DelayTime(val) => Some(format!("Delay Time: {:.2}s", val)),
+                        crate::tui::audio_bridge::ParameterUpdate::DelayFeedback(val) => Some(format!("Delay Feedback: {:.0}%", val * 100.0)),
+                        crate::tui::audio_bridge::ParameterUpdate::DelayMix(val) => Some(format!("Delay Mix: {:.0}%", val * 100.0)),
+                        crate::tui::audio_bridge::ParameterUpdate::FlangerRate(val) => Some(format!("Flanger Rate: {:.1} Hz", val)),
+                        crate::tui::audio_bridge::ParameterUpdate::FlangerDepth(val) => Some(format!("Flanger Depth: {:.0}%", val * 100.0)),
+                        crate::tui::audio_bridge::ParameterUpdate::FlangerMix(val) => Some(format!("Flanger Mix: {:.0}%", val * 100.0)),
+                        crate::tui::audio_bridge::ParameterUpdate::LfoRate(val) => Some(format!("LFO Rate: {:.1} Hz", val)),
+                        crate::tui::audio_bridge::ParameterUpdate::LfoDepth(val) => Some(format!("LFO Depth: {:.0}%", val * 100.0)),
+                        _ => None
+                    };
+                    self.send_parameter_update_real_time(update)?;
+                }
             }
         }
         Ok(())
     }
-    
+
     fn handle_track_volume_navigation(&mut self, key_event: KeyEvent) -> Result<(), TuiError> {
         match key_event.code {
             KeyCode::Up | KeyCode::Down => {
@@ -836,7 +1079,7 @@ impl RoscoTuiApp {
     fn reset_current_parameter(&mut self) -> Result<(), TuiError> {
         if let FocusArea::Synthesizer(SynthSection::Oscillator) = &self.current_focus {
             match self.synthesizer_panel.current_section {
-                crate::tui::ui::synthesizer::OscillatorSubSection::Waveform => {
+                crate::tui::ui::synthesizer::SynthesizerSubSection::Oscillator(crate::tui::ui::synthesizer::OscillatorSubSection::Waveform) => {
                     self.synthesizer_panel.oscillator.waveform_selector.selected = 0; // Reset to Sine
                     self.synth_params.oscillator_waveform = self.synthesizer_panel.oscillator.waveform_selector.selected_waveform();
                     let update = crate::tui::audio_bridge::ParameterUpdate::OscillatorWaveform(
@@ -845,20 +1088,133 @@ impl RoscoTuiApp {
                     self.send_parameter_update_real_time(update)?;
                     self.ui_state.status_message = Some("Waveform reset to Sine".to_string());
                 }
-                crate::tui::ui::synthesizer::OscillatorSubSection::Frequency => {
-                    self.synthesizer_panel.oscillator.frequency_slider.set_value(440.0);
-                    self.synth_params.oscillator_frequency = 440.0;
-                    let update = crate::tui::audio_bridge::ParameterUpdate::OscillatorFrequency(440.0);
-                    self.send_parameter_update_real_time(update)?;
-                    self.ui_state.status_message = Some("Frequency reset to 440 Hz".to_string());
-                }
-                crate::tui::ui::synthesizer::OscillatorSubSection::Volume => {
+                crate::tui::ui::synthesizer::SynthesizerSubSection::Oscillator(crate::tui::ui::synthesizer::OscillatorSubSection::Volume) => {
                     self.synthesizer_panel.oscillator.volume_slider.set_value(0.75);
                     self.synth_params.oscillator_volume = 0.75;
                     let update = crate::tui::audio_bridge::ParameterUpdate::OscillatorVolume(0.75);
                     self.send_parameter_update_real_time(update)?;
                     self.ui_state.status_message = Some("Volume reset to 75%".to_string());
                 }
+                _ => {}
+            }
+        } else if let FocusArea::Synthesizer(SynthSection::Filter) = &self.current_focus {
+            match self.synthesizer_panel.current_section {
+                crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Type) => {
+                    self.synthesizer_panel.filter.filter_type.selected = 0; // Reset to LowPass
+                    self.synth_params.filter_type = self.synthesizer_panel.filter.filter_type.selected_filter().clone();
+                    self.filter_manager.update_filter_type(self.synthesizer_panel.filter.filter_type.selected_filter().clone());
+                    let update = crate::tui::audio_bridge::ParameterUpdate::FilterType(
+                        self.synthesizer_panel.filter.filter_type.selected_filter().clone()
+                    );
+                    self.send_parameter_update_real_time(update)?;
+                    self.ui_state.status_message = Some("Filter type reset to LowPass".to_string());
+                    self.apply_filter_to_tracks();
+                }
+                crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Frequency) => {
+                    self.synthesizer_panel.filter.frequency_slider.set_value(1000.0);
+                    self.synth_params.filter_cutoff = 1000.0;
+                    self.filter_manager.update_frequency(1000.0);
+                    let update = crate::tui::audio_bridge::ParameterUpdate::FilterCutoff(1000.0);
+                    self.send_parameter_update_real_time(update)?;
+                    self.ui_state.status_message = Some("Cutoff reset to 1000 Hz".to_string());
+                    self.apply_filter_to_tracks();
+                }
+                crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Bandwidth) => {
+                    self.synthesizer_panel.filter.bandwidth_slider.set_value(200.0);
+                    self.synth_params.filter_bandwidth = 200.0;
+                    self.filter_manager.update_bandwidth(200.0);
+                    let update = crate::tui::audio_bridge::ParameterUpdate::FilterBandwidth(200.0);
+                    self.send_parameter_update_real_time(update)?;
+                    self.ui_state.status_message = Some("Bandwidth reset to 200 Hz".to_string());
+                    self.apply_filter_to_tracks();
+                }
+                crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Resonance) => {
+                    self.synthesizer_panel.filter.resonance_slider.set_value(0.3);
+                    self.synth_params.filter_resonance = 0.3;
+                    self.filter_manager.update_resonance(0.3);
+                    let update = crate::tui::audio_bridge::ParameterUpdate::FilterResonance(0.3);
+                    self.send_parameter_update_real_time(update)?;
+                    self.ui_state.status_message = Some("Resonance reset to 30%".to_string());
+                    self.apply_filter_to_tracks();
+                }
+                crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Mix) => {
+                    self.synthesizer_panel.filter.mix_slider.set_value(0.8);
+                    self.synth_params.filter_mix = 0.8;
+                    self.filter_manager.update_mix(0.8);
+                    let update = crate::tui::audio_bridge::ParameterUpdate::FilterMix(0.8);
+                    self.send_parameter_update_real_time(update)?;
+                    self.ui_state.status_message = Some("Mix reset to 80%".to_string());
+                    self.apply_filter_to_tracks();
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+    
+    fn apply_filter_to_tracks(&mut self) {
+        // Apply the current filter settings to all tracks
+        for track in &mut self.tracks {
+            self.filter_manager.apply_to_track_effects(&mut track.effects);
+        }
+
+        // Also apply to the sequencer panel tracks if they exist
+        for _track in &mut self.sequencer_panel.grid.tracks {
+            // Note: This assumes the sequencer tracks have effects
+            // We may need to add effects to the sequencer track structure
+        }
+    }
+
+    fn save_current_track_as_pattern(&mut self) {
+        let track_idx = self.sequencer_panel.grid.cursor.track as usize;
+        let track = &self.sequencer_panel.grid.tracks[track_idx];
+        let pattern_count = self.sequencer_panel.get_pattern_manager().count();
+        let pattern_name = format!("Pattern {} (Track {})", pattern_count + 1, track.track_number);
+
+        if let Some(_pattern_id) = self.sequencer_panel.store_track_as_pattern(track_idx, pattern_name.clone()) {
+            self.ui_state.status_message = Some(format!("Pattern saved: {}", pattern_name));
+
+            // Sync to audio if needed
+            self.sync_sequencer_to_audio();
+        }
+    }
+
+    fn handle_pattern_browser_navigation(&mut self, key: KeyEvent) -> Result<(), TuiError> {
+        let pattern_count = self.sequencer_panel.get_pattern_manager().count();
+        if pattern_count == 0 {
+            return Ok(());
+        }
+
+        match key.code {
+            KeyCode::Up => {
+                if self.ui_state.pattern_browser_selection > 0 {
+                    self.ui_state.pattern_browser_selection -= 1;
+                }
+            }
+            KeyCode::Down => {
+                if self.ui_state.pattern_browser_selection < pattern_count.saturating_sub(1) {
+                    self.ui_state.pattern_browser_selection += 1;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn handle_pattern_browser_selection(&mut self) -> Result<(), TuiError> {
+        let patterns: Vec<_> = self.sequencer_panel.get_pattern_manager().list_patterns()
+            .into_iter()
+            .map(|p| (p.id.clone(), p.name.clone()))
+            .collect();
+
+        if let Some((pattern_id, pattern_name)) = patterns.get(self.ui_state.pattern_browser_selection) {
+            let track_idx = self.sequencer_panel.grid.cursor.track as usize;
+            if self.sequencer_panel.load_pattern_to_track(pattern_id, track_idx) {
+                self.ui_state.status_message = Some(format!("Loaded '{}' to Track {}", pattern_name, track_idx + 1));
+                self.ui_state.show_pattern_browser = false;
+
+                // Sync to audio
+                self.sync_sequencer_to_audio();
             }
         }
         Ok(())
@@ -866,9 +1222,14 @@ impl RoscoTuiApp {
     
     fn update_ui(&mut self, frame: &mut Frame) {
         let size = frame.size();
-        
+
         if self.ui_state.show_help {
             self.render_help(frame, size);
+            return;
+        }
+
+        if self.ui_state.show_pattern_browser {
+            self.render_pattern_browser(frame, size);
             return;
         }
         
@@ -911,9 +1272,9 @@ impl RoscoTuiApp {
         frame.render_widget(block, area);
         
         self.render_oscillator_section(frame, synth_chunks[0]);
-        self.render_placeholder_section(frame, synth_chunks[1], "2 - FILTER");
-        self.render_placeholder_section(frame, synth_chunks[2], "3 - ENVELOPE");
-        self.render_placeholder_section(frame, synth_chunks[3], "4 - EFFECTS");
+        self.render_filter_section(frame, synth_chunks[1]);
+        self.render_envelope_section(frame, synth_chunks[2]);
+        self.render_effects_section(frame, synth_chunks[3]);
     }
     
     fn render_oscillator_section(&self, frame: &mut Frame, area: Rect) {
@@ -932,13 +1293,12 @@ impl RoscoTuiApp {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(2), // Waveform
-                Constraint::Length(2), // Frequency  
                 Constraint::Length(2), // Volume
             ])
             .split(inner);
         
         // Render waveform control
-        let waveform_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::OscillatorSubSection::Waveform;
+        let waveform_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::SynthesizerSubSection::Oscillator(crate::tui::ui::synthesizer::OscillatorSubSection::Waveform);
         let waveform_style = if waveform_focused { 
             Style::default().fg(Color::Cyan) 
         } else { 
@@ -951,7 +1311,7 @@ impl RoscoTuiApp {
         frame.render_widget(Paragraph::new(waveform_text).style(waveform_style), chunks[0]);
         
         // Render volume control
-        let vol_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::OscillatorSubSection::Volume;
+        let vol_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::SynthesizerSubSection::Oscillator(crate::tui::ui::synthesizer::OscillatorSubSection::Volume);
         let vol_style = if vol_focused { 
             Style::default().fg(Color::Cyan) 
         } else { 
@@ -963,9 +1323,202 @@ impl RoscoTuiApp {
             vol_slider.value * 100.0,
             if vol_focused { "◄" } else { "" }
         );
-        frame.render_widget(Paragraph::new(vol_text).style(vol_style), chunks[2]);
+        frame.render_widget(Paragraph::new(vol_text).style(vol_style), chunks[1]);
     }
     
+    fn render_filter_section(&self, frame: &mut Frame, area: Rect) {
+        let focused = matches!(self.current_focus, FocusArea::Synthesizer(SynthSection::Filter));
+        let title = if focused { "2 - FILTER [FOCUSED]" } else { "2 - FILTER" };
+        
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL);
+        
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        
+        // Determine which controls to show based on filter type
+        let filter_type = self.synthesizer_panel.get_filter_type();
+        let has_bandwidth = matches!(filter_type, crate::tui::ui::widgets::selector::FilterType::BandPass | crate::tui::ui::widgets::selector::FilterType::Notch);
+        
+        // Create constraints based on filter type
+        let constraints = if has_bandwidth {
+            vec![
+                Constraint::Length(2), // Type
+                Constraint::Length(2), // Frequency (Center for BP/Notch)
+                Constraint::Length(2), // Bandwidth
+                Constraint::Length(2), // Resonance
+                Constraint::Length(2), // Mix
+            ]
+        } else {
+            vec![
+                Constraint::Length(2), // Type
+                Constraint::Length(2), // Frequency (Cutoff for LP/HP)
+                Constraint::Length(2), // Resonance
+                Constraint::Length(2), // Mix
+            ]
+        };
+        
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(constraints)
+            .split(inner);
+        
+        // Render filter type control
+        let filter_type_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Type);
+        let filter_type_style = if filter_type_focused { 
+            Style::default().fg(Color::Cyan) 
+        } else { 
+            Style::default().fg(Color::White) 
+        };
+        let filter_type_text = format!("Type: {:?} {}", 
+            self.synthesizer_panel.get_filter_type(),
+            if filter_type_focused { "◄" } else { "" }
+        );
+        frame.render_widget(Paragraph::new(filter_type_text).style(filter_type_style), chunks[0]);
+        
+        // Render frequency control (label changes based on filter type)
+        let freq_label = if has_bandwidth { "Center" } else { "Cutoff" };
+        let freq_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Frequency);
+        let freq_style = if freq_focused { 
+            Style::default().fg(Color::Cyan) 
+        } else { 
+            Style::default().fg(Color::White) 
+        };
+        let freq_slider = &self.synthesizer_panel.filter.frequency_slider;
+        let freq_text = format!("{}: {} {:.0} Hz {}", 
+            freq_label,
+            freq_slider.render_bar(),
+            freq_slider.value,
+            if freq_focused { "◄" } else { "" }
+        );
+        frame.render_widget(Paragraph::new(freq_text).style(freq_style), chunks[1]);
+        
+        if has_bandwidth {
+            // Render bandwidth slider (only for BP/Notch)
+            let bw_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Bandwidth);
+            let bw_style = if bw_focused { 
+                Style::default().fg(Color::Cyan) 
+            } else { 
+                Style::default().fg(Color::White) 
+            };
+            let bw_slider = &self.synthesizer_panel.filter.bandwidth_slider;
+            let bw_text = format!("BW: {} {:.0} Hz {}", 
+                bw_slider.render_bar(),
+                bw_slider.value,
+                if bw_focused { "◄" } else { "" }
+            );
+            frame.render_widget(Paragraph::new(bw_text).style(bw_style), chunks[2]);
+            
+            // Render resonance control
+            let resonance_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Resonance);
+            let resonance_style = if resonance_focused { 
+                Style::default().fg(Color::Cyan) 
+            } else { 
+                Style::default().fg(Color::White) 
+            };
+            let resonance_slider = &self.synthesizer_panel.filter.resonance_slider;
+            let resonance_text = format!("Res: {} {:.0}% {}", 
+                resonance_slider.render_bar(),
+                resonance_slider.value * 100.0,
+                if resonance_focused { "◄" } else { "" }
+            );
+            frame.render_widget(Paragraph::new(resonance_text).style(resonance_style), chunks[3]);
+            
+            // Render mix control
+            let mix_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Mix);
+            let mix_style = if mix_focused { 
+                Style::default().fg(Color::Cyan) 
+            } else { 
+                Style::default().fg(Color::White) 
+            };
+            let mix_slider = &self.synthesizer_panel.filter.mix_slider;
+            let mix_text = format!("Mix: {} {:.0}% {}", 
+                mix_slider.render_bar(),
+                mix_slider.value * 100.0,
+                if mix_focused { "◄" } else { "" }
+            );
+            frame.render_widget(Paragraph::new(mix_text).style(mix_style), chunks[4]);
+        } else {
+            // Render resonance control (for LP/HP)
+            let resonance_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Resonance);
+            let resonance_style = if resonance_focused { 
+                Style::default().fg(Color::Cyan) 
+            } else { 
+                Style::default().fg(Color::White) 
+            };
+            let resonance_slider = &self.synthesizer_panel.filter.resonance_slider;
+            let resonance_text = format!("Res: {} {:.0}% {}", 
+                resonance_slider.render_bar(),
+                resonance_slider.value * 100.0,
+                if resonance_focused { "◄" } else { "" }
+            );
+            frame.render_widget(Paragraph::new(resonance_text).style(resonance_style), chunks[2]);
+            
+            // Render mix control
+            let mix_focused = focused && self.synthesizer_panel.current_section == crate::tui::ui::synthesizer::SynthesizerSubSection::Filter(crate::tui::ui::synthesizer::FilterSubSection::Mix);
+            let mix_style = if mix_focused { 
+                Style::default().fg(Color::Cyan) 
+            } else { 
+                Style::default().fg(Color::White) 
+            };
+            let mix_slider = &self.synthesizer_panel.filter.mix_slider;
+            let mix_text = format!("Mix: {} {:.0}% {}", 
+                mix_slider.render_bar(),
+                mix_slider.value * 100.0,
+                if mix_focused { "◄" } else { "" }
+            );
+            frame.render_widget(Paragraph::new(mix_text).style(mix_style), chunks[3]);
+        }
+    }
+    
+    fn render_envelope_section(&self, frame: &mut Frame, area: Rect) {
+        let focused = matches!(self.current_focus, FocusArea::Synthesizer(SynthSection::Envelope));
+        let title = if focused { "3 - ENVELOPE [FOCUSED]" } else { "3 - ENVELOPE" };
+
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL);
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        // Render envelope controls using the synthesizer panel
+        if let SynthesizerSubSection::Envelope(env_section) = self.synthesizer_panel.current_section {
+            self.synthesizer_panel.envelope.render(inner, frame.buffer_mut(), focused, env_section);
+        } else if focused {
+            // Fallback - render with default section
+            self.synthesizer_panel.envelope.render(inner, frame.buffer_mut(), focused, crate::tui::ui::synthesizer::EnvelopeSubSection::AttackTime);
+        } else {
+            // Non-focused, render with placeholder
+            self.synthesizer_panel.envelope.render(inner, frame.buffer_mut(), false, crate::tui::ui::synthesizer::EnvelopeSubSection::AttackTime);
+        }
+    }
+
+    fn render_effects_section(&self, frame: &mut Frame, area: Rect) {
+        let focused = matches!(self.current_focus, FocusArea::Synthesizer(SynthSection::Effects));
+        let title = if focused { "4 - EFFECTS [FOCUSED]" } else { "4 - EFFECTS" };
+
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL);
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        // Render effects controls using the synthesizer panel
+        if let SynthesizerSubSection::Effects(fx_section) = self.synthesizer_panel.current_section {
+            self.synthesizer_panel.effects.render(inner, frame.buffer_mut(), focused, fx_section);
+        } else if focused {
+            // Fallback - render with default section
+            self.synthesizer_panel.effects.render(inner, frame.buffer_mut(), focused, crate::tui::ui::synthesizer::EffectsSubSection::DelayTime);
+        } else {
+            // Non-focused, render with placeholder
+            self.synthesizer_panel.effects.render(inner, frame.buffer_mut(), false, crate::tui::ui::synthesizer::EffectsSubSection::DelayTime);
+        }
+    }
+
+    #[allow(dead_code)]
     fn render_placeholder_section(&self, frame: &mut Frame, area: Rect, title: &str) {
         let block = Block::default()
             .title(title)
@@ -1197,7 +1750,7 @@ impl RoscoTuiApp {
         let focused_transport = matches!(self.current_focus, FocusArea::Transport);
         
         let play_button = if focused_transport && self.transport.focused_button == TransportButton::Play {
-            if self.transport.is_playing { "►[▶]◄" } else { "►[▶]◄" }
+            "►[▶]◄"
         } else if self.transport.is_playing {
             "[▶]"
         } else {
@@ -1205,7 +1758,7 @@ impl RoscoTuiApp {
         };
         
         let stop_button = if focused_transport && self.transport.focused_button == TransportButton::Stop {
-            if !self.transport.is_playing { "►[■]◄" } else { "►[■]◄" }
+            "►[■]◄"
         } else if !self.transport.is_playing {
             "[■]"
         } else {
@@ -1234,9 +1787,9 @@ impl RoscoTuiApp {
         let current_section_info = match &self.current_focus {
             FocusArea::Synthesizer(SynthSection::Oscillator) => {
                 match self.synthesizer_panel.current_section {
-                    crate::tui::ui::synthesizer::OscillatorSubSection::Waveform => "OSC:Waveform",
-                    crate::tui::ui::synthesizer::OscillatorSubSection::Frequency => "OSC:Frequency", 
-                    crate::tui::ui::synthesizer::OscillatorSubSection::Volume => "OSC:Volume",
+                    crate::tui::ui::synthesizer::SynthesizerSubSection::Oscillator(crate::tui::ui::synthesizer::OscillatorSubSection::Waveform) => "OSC:Waveform",
+                    crate::tui::ui::synthesizer::SynthesizerSubSection::Oscillator(crate::tui::ui::synthesizer::OscillatorSubSection::Volume) => "OSC:Volume",
+                    _ => "OSC:Unknown",
                 }
             }
             FocusArea::Synthesizer(SynthSection::Filter) => "Filter",
@@ -1280,6 +1833,13 @@ OSCILLATOR SECTION:
   Frequency  - Left/Right: 20 Hz - 20 kHz (logarithmic)
   Volume     - Left/Right: 0% - 100% (linear)
 
+FILTER SECTION:
+  Type       - Left/Right to change, Enter to expand
+  Cutoff/Center - Left/Right: 20 Hz - 20 kHz (logarithmic)
+  Bandwidth  - Left/Right: 10 Hz - 5 kHz (logarithmic, BP/Notch only)
+  Resonance  - Left/Right: 0% - 100% (linear)
+  Mix        - Left/Right: 0% - 100% (linear)
+
 TRANSPORT (8):
   Left/Right - Navigate between Play ▶ and Stop ■ buttons
   Enter/Space - Activate focused button (►[▶]◄ shows focus)
@@ -1305,9 +1865,25 @@ REAL-TIME FEATURES:
   • Visual feedback with colored focus indicators
   • Status messages for all parameter changes
 
+PATTERN MANAGEMENT:
+  F2         - Save current track as pattern
+  F3         - Open/close pattern browser
+  Ctrl+P     - Toggle pattern browser (alternative)
+  Alt+S      - Quick save pattern
+  Alt+L      - Load most recent pattern
+
+COPY/PASTE (in Track Grid):
+  Ctrl+C     - Copy current track (or selection if active)
+  Ctrl+V     - Paste pattern at cursor position
+  Ctrl+X     - Cut current track (copy + clear)
+  Ctrl+S     - Start/clear selection
+  Ctrl+A     - Select all steps in current track
+  Alt+A      - Select all tracks at current step
+  Delete     - Clear selected steps (or current step)
+
 GLOBAL:
   F1         - Toggle this help
-  ESC        - Quit application
+  ESC        - Close overlays / Quit application
         "#;
         
         let block = Block::default()
@@ -1320,5 +1896,65 @@ GLOBAL:
         
         let paragraph = Paragraph::new(help_text);
         frame.render_widget(paragraph, inner);
+    }
+
+    fn render_pattern_browser(&self, frame: &mut Frame, area: Rect) {
+        // Create a centered popup area
+        let popup_width = 60.min(area.width.saturating_sub(4));
+        let popup_height = 20.min(area.height.saturating_sub(4));
+        let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+        let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+        let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+        // Clear the popup area
+        frame.render_widget(Clear, popup_area);
+
+        let block = Block::default()
+            .title("PATTERN BROWSER [F3 to close]")
+            .borders(Borders::ALL)
+            .style(Style::default().fg(Color::Cyan));
+
+        let inner = block.inner(popup_area);
+        frame.render_widget(block, popup_area);
+
+        // Get patterns
+        let patterns = self.sequencer_panel.get_pattern_manager().list_patterns();
+        let current_track = self.sequencer_panel.grid.cursor.track + 1;
+
+        if patterns.is_empty() {
+            let text = format!(
+                "No patterns saved.\n\nPress F2 to save the current track as a pattern.\n\nCurrent track: {}",
+                current_track
+            );
+            let paragraph = Paragraph::new(text).style(Style::default().fg(Color::Yellow));
+            frame.render_widget(paragraph, inner);
+        } else {
+            // Create header
+            let header = format!("Select pattern to load into Track {}\n{}\n",
+                current_track,
+                "─".repeat((inner.width as usize).saturating_sub(2))
+            );
+
+            // Build pattern list
+            let mut content = header;
+            for (idx, pattern) in patterns.iter().enumerate() {
+                let is_selected = idx == self.ui_state.pattern_browser_selection;
+                let prefix = if is_selected { "► " } else { "  " };
+                let step_count = pattern.steps.iter().filter(|s| s.enabled).count();
+                let line = format!(
+                    "{}{} ({} steps enabled)\n",
+                    prefix,
+                    pattern.name,
+                    step_count
+                );
+                content.push_str(&line);
+            }
+
+            content.push_str(&format!("\n{}\n", "─".repeat((inner.width as usize).saturating_sub(2))));
+            content.push_str("↑↓: Navigate  Enter: Load  Esc: Close  F2: Save New");
+
+            let paragraph = Paragraph::new(content).style(Style::default().fg(Color::White));
+            frame.render_widget(paragraph, inner);
+        }
     }
 }

@@ -31,6 +31,12 @@ pub enum PositionFormat {
     SamplePosition,
 }
 
+impl Default for TransportPanel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TransportPanel {
     pub fn new() -> Self {
         Self {
@@ -53,6 +59,12 @@ impl Button {
     }
 }
 
+impl Default for PositionDisplay {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PositionDisplay {
     pub fn new() -> Self {
         Self {
@@ -70,11 +82,11 @@ impl PositionDisplay {
             }
             PositionFormat::TimeMinutesSeconds => {
                 // TODO: Convert to time format
-                format!("0:00")
+                "0:00".to_string()
             }
             PositionFormat::SamplePosition => {
                 // TODO: Convert to sample position
-                format!("0")
+                "0".to_string()
             }
         }
     }

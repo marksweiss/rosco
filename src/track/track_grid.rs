@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use std::sync::{Arc, Mutex};
 
 use crate::common::constants::{FLOAT_EPSILON, SAMPLE_RATE};
 use crate::common::float_utils::{float_eq, float_geq, float_leq};
@@ -44,6 +45,9 @@ impl<SequenceType: NextNotes + Iterator + SetCurPosition> TrackGrid<SequenceType
         for track in self.tracks.iter_mut() {
             track.sequence.set_cur_position(self.cur_position_ms);
             
+            // Create shared reference to track effects - this is the key optimization!
+            let shared_track_effects = Arc::new(Mutex::new(track.effects.clone()));
+            
             for playback_note in track.sequence.next_notes() {
                 let mut playback_note_builder = PlaybackNoteBuilder::default();
                     playback_note_builder
@@ -58,7 +62,7 @@ impl<SequenceType: NextNotes + Iterator + SetCurPosition> TrackGrid<SequenceType
                         .lfos(playback_note.lfos.clone())
                         .flangers(playback_note.flangers.clone())
                         .delays(playback_note.delays.clone())
-                        .track_effects(track.effects.clone());
+                        .track_effects(shared_track_effects.clone());
                 
                 match playback_note.note_type {
                     NoteType::Oscillator => {

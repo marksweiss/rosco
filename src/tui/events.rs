@@ -7,6 +7,12 @@ pub struct EventHandler {
     // Future: could add more sophisticated event handling here
 }
 
+impl Default for EventHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventHandler {
     pub fn new() -> Self {
         Self {}
@@ -34,6 +40,12 @@ pub struct EventLoop {
     event_receiver: mpsc::UnboundedReceiver<TuiEvent>,
 }
 
+impl Default for EventLoop {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventLoop {
     pub fn new() -> Self {
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
@@ -57,14 +69,9 @@ impl EventLoop {
         tokio::spawn(async move {
             loop {
                 if let Ok(true) = event::poll(Duration::from_millis(16)) {
-                    if let Ok(event) = event::read() {
-                        match event {
-                            Event::Key(key) => {
-                                if sender.send(TuiEvent::Key(key)).is_err() {
-                                    break;
-                                }
-                            }
-                            _ => {}
+                    if let Ok(Event::Key(key)) = event::read() {
+                        if sender.send(TuiEvent::Key(key)).is_err() {
+                            break;
                         }
                     }
                 }

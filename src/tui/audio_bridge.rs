@@ -6,19 +6,61 @@ use std::sync::atomic::Ordering;
 
 #[derive(Debug, Clone)]
 pub enum ParameterUpdate {
-    OscillatorFrequency(f32),
+    // Oscillator parameters
     OscillatorVolume(f32),
     OscillatorWaveform(audio_gen::Waveform),
+
+    // Filter parameters
+    FilterType(crate::tui::ui::widgets::selector::FilterType),
     FilterCutoff(f32),
+    FilterCenterFrequency(f32),
+    FilterBandwidth(f32),
     FilterResonance(f32),
-    EnvelopeAttack(f32),
-    EnvelopeDecay(f32),
-    EnvelopeSustain(f32),
-    EnvelopeRelease(f32),
+    FilterMix(f32),
+
+    // Envelope parameters
+    EnvelopeAttackTime(f32),
+    EnvelopeAttackLevel(f32),
+    EnvelopeDecayTime(f32),
+    EnvelopeDecayLevel(f32),
+    EnvelopeSustainTime(f32),
+    EnvelopeSustainLevel(f32),
+    EnvelopeReleaseTime(f32),
+    EnvelopeReleaseLevel(f32),
+
+    // Delay effect parameters
+    DelayTime(f32),       // 0.0-1.0s delay time
+    DelayFeedback(f32),   // 0.0-1.0 feedback amount
+    DelayMix(f32),        // 0.0-1.0 dry/wet mix
+    DelayEnabled(bool),
+
+    // Flanger effect parameters
+    FlangerRate(f32),     // 0.1-10.0 Hz LFO rate
+    FlangerDepth(f32),    // 0.0-1.0 modulation depth
+    FlangerMix(f32),      // 0.0-1.0 dry/wet mix
+    FlangerEnabled(bool),
+
+    // LFO parameters
+    LfoRate(f32),         // 0.1-20.0 Hz
+    LfoDepth(f32),        // 0.0-1.0
+    LfoTarget(LfoTarget), // What parameter LFO modulates
+    LfoEnabled(bool),
+
+    // Sequencer parameters
     SequencerStep { track: u8, step: u8, enabled: bool },
+
+    // Transport parameters
     TransportPlay,
     TransportStop,
     TempoChange(f32),
+}
+
+/// LFO modulation target
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LfoTarget {
+    FilterCutoff,
+    Volume,
+    Pan,
 }
 
 #[derive(Debug, Clone)]

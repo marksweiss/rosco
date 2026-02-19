@@ -125,7 +125,7 @@ impl BandPassFilter {
     /// Calculate the filter coefficients for the current parameters
     fn calculate_coefficients(&self) -> FilterCoefficients {
         // Clamp center frequency to valid range
-        let center = self.center_frequency.max(20.0).min(NYQUIST_FREQUENCY * 0.99);
+        let center = self.center_frequency.clamp(20.0, NYQUIST_FREQUENCY * 0.99);
         
         // Clamp bandwidth to reasonable range
         let bandwidth = self.bandwidth.max(10.0).min(center * 0.8);
@@ -174,7 +174,7 @@ impl BandPassFilterBuilder {
     pub fn build_with_coefficients(&mut self) -> Result<BandPassFilter, String> {
         // Clamp center_frequency if set
         if let Some(center) = self.center_frequency {
-            let clamped = center.max(20.0).min(NYQUIST_FREQUENCY * 0.99);
+            let clamped = center.clamp(20.0, NYQUIST_FREQUENCY * 0.99);
             self.center_frequency = Some(clamped);
         }
         

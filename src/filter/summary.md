@@ -1,4 +1,7 @@
-# Filter Module
+# FILTER Module
+*Last auto-updated: 2026-02-19 11:43:17*
+*This summary was automatically updated due to source file changes in this commit.*
+
 
 ## Purpose
 Implements IIR (Infinite Impulse Response) digital filters for audio processing. This module provides various filter types for frequency-domain audio manipulation and tone shaping.

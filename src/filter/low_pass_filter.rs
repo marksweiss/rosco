@@ -117,7 +117,7 @@ impl LowPassFilter {
     /// Calculate the filter coefficients for the current parameters
     fn calculate_coefficients(&self) -> FilterCoefficients {
         // Clamp cutoff frequency to valid range
-        let cutoff = self.cutoff_frequency.max(20.0).min(NYQUIST_FREQUENCY * 0.99);
+        let cutoff = self.cutoff_frequency.clamp(20.0, NYQUIST_FREQUENCY * 0.99);
         
         // Convert frequency to normalized frequency (0 to 1)
         let omega = 2.0 * std::f32::consts::PI * cutoff / SAMPLE_RATE;
@@ -162,7 +162,7 @@ impl LowPassFilterBuilder {
     pub fn build_with_coefficients(&mut self) -> Result<LowPassFilter, String> {
         // Clamp cutoff_frequency if set
         if let Some(cutoff) = self.cutoff_frequency {
-            let clamped = cutoff.max(20.0).min(NYQUIST_FREQUENCY * 0.99);
+            let clamped = cutoff.clamp(20.0, NYQUIST_FREQUENCY * 0.99);
             self.cutoff_frequency = Some(clamped);
         }
         let mut filter = self.build().map_err(|e| e.to_string())?;
