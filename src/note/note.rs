@@ -7,7 +7,6 @@ use crate::common::float_utils::float_eq;
 use crate::note::constants::{DEFAULT_FREQUENCY, DEFAULT_VOLUME, INIT_START_TIME};
 use crate::note::note_trait::BuilderWrapper;
 
-#[allow(dead_code)]
 #[derive(Builder, Clone, Debug)]
 pub(crate) struct Note {
     #[builder(default = "DEFAULT_FREQUENCY")]

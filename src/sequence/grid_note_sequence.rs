@@ -24,7 +24,7 @@ impl AppendNote for GridNoteSequence {
 }
 
 impl AppendNotes for GridNoteSequence {
-    fn append_notes(&mut self, notes: &Vec<PlaybackNote>) {
+    fn append_notes(&mut self, notes: &[PlaybackNote]) {
         self.append_notes(notes);
     }
 }
@@ -58,12 +58,12 @@ impl IterMutWrapper for GridNoteSequence {
 #[allow(dead_code)]
 impl GridNoteSequence {
 
-    pub(crate) fn append_notes(&mut self, playback_notes: &Vec<PlaybackNote>) {
+    pub(crate) fn append_notes(&mut self, playback_notes: &[PlaybackNote]) {
         if playback_notes.is_empty() {
             panic!("Notes to add must not be empty");
         }
-        
-        self.sequence.push(playback_notes.clone());
+
+        self.sequence.push(playback_notes.to_vec());
     }
     
     pub(crate) fn insert_notes(&mut self, playback_notes: Vec<PlaybackNote>) {

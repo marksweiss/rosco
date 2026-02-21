@@ -6,7 +6,7 @@ pub(crate) trait AppendNote {
 }
 
 pub(crate) trait AppendNotes {
-    fn append_notes(&mut self, notes: &Vec<PlaybackNote>);
+    fn append_notes(&mut self, notes: &[PlaybackNote]);
 }
 
 pub(crate) trait BuilderWrapper<SequenceType> {

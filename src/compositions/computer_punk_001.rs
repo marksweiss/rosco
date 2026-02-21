@@ -44,11 +44,11 @@ pub(crate) fn play() {
         .build().unwrap();
     // Flangers
     let flanger = FlangerBuilder::default()
-        .window_size(12)
+        .delay_ms(5.0)
         .mix(0.15)
         .build().unwrap();
     let flanger_2 = FlangerBuilder::default()
-        .window_size(6)
+        .delay_ms(3.0)
         .mix(0.5)
         .build().unwrap();
     // LFOs
@@ -70,7 +70,7 @@ pub(crate) fn play() {
     let mut piano_note_1 = comp_utils::build_sampled_playback_note(
         &mut sampled_note_pool,
         &mut playback_note_pool,
-        "/Users/markweiss/Downloads/punk_computer/003/piano_note_1_clipped.wav",
+        "/Users/markweiss/Downloads/punk_computer/003/piano_note_1.wav",
         sampled_note_volume,
         start_time,
         vec![short_envelope],

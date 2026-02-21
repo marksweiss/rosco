@@ -112,7 +112,6 @@ impl FromStr for WesternPitchType {
 }
 
 impl WesternPitchType {
-    #[allow(dead_code)]
     fn to_western_pitch(&self) -> WesternPitch {
         match self {
             WesternPitchType::C => WesternPitch::C,
@@ -151,7 +150,7 @@ pub struct DelayDef {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct FlangerDef {
-    pub window_size: usize,
+    pub delay_ms: f32,
     pub mix: f32,
 }
 
@@ -244,29 +243,23 @@ pub struct Parser {
 }
 
 impl Parser {
-    #[allow(dead_code)]
-    pub fn new(input: &str) -> Self {
+    pub fn new(input: &str) -> Result<Self, String> {
         let input_tokens: Vec<String> = input.lines().map(|s| s.to_string()).collect();
-        
-        let input_after_macro = Self::expand_macros(input_tokens.join("\n").as_str())
-            .unwrap_or_else(|_| input.to_string());
+
+        let input_after_macro = Self::expand_macros(input_tokens.join("\n").as_str())?;
 
         let input_after_generators = Self::expand_generators(input_after_macro.as_str())
             .unwrap_or_else(|_| input_after_macro.to_string());
-        
-        let input_after_apply= Self::expand_apply_defs(input_after_generators.as_str()).unwrap_or_else(|_| Vec::new());
 
-
-        // TEMP DEBUG
-        print!("AFTER APPLY:\n{}", input_after_apply.join("\n"));
-
+        let input_after_apply = Self::expand_apply_defs(input_after_generators.as_str())
+            .unwrap_or_else(|_| Vec::new());
 
         let tokens = Self::tokenize(&input_after_apply.join("\n"));
-        
-        Self {
+
+        Ok(Self {
             tokens,
             current: 0,
-        }
+        })
     }
 
     fn expand_macros(input: &str) -> Result<String, String> {
@@ -304,18 +297,18 @@ impl Parser {
             }
             expanded = new_expanded;
         }
-        // Check for any remaining $name that is not in macro_defs and panic with details
+        // Check for any remaining $name that is not in macro_defs and return error
         let re = regex::Regex::new(r"\$([a-zA-Z][a-zA-Z0-9\-_]*)").unwrap();
         for (line_idx, line) in expanded.lines().enumerate() {
             for cap in re.captures_iter(line) {
                 let macro_name = &cap[1];
                 if !macro_defs.contains_key(macro_name) {
-                    panic!(
+                    return Err(format!(
                         "Undefined macro '${}' encountered on line {}: \n  {}",
                         macro_name,
                         line_idx + 1,
                         line.trim()
-                    );
+                    ));
                 }
             }
         }
@@ -447,7 +440,6 @@ impl Parser {
         
     }
 
-    #[allow(dead_code)]
     fn parse_apply_def(line: &str) -> Result<Option<(HashMap<String, Vec<String>>, String)>, String> {
         let mut parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() < 3 || parts[0] != "apply" {
@@ -733,12 +725,14 @@ impl Parser {
 
         self.expect("flanger")?;
         self.expect("window_size")?;
+        // window_size (in samples) is converted to delay_ms for the new flanger implementation
         let window_size = self.parse_usize()?;
+        let delay_ms = window_size as f32 / (crate::common::constants::SAMPLE_RATE / 1000.0);
         self.expect("mix")?;
         let mix = self.parse_f32()?;
 
         Ok(EffectDef::Flanger(FlangerDef {
-            window_size,
+            delay_ms,
             mix,
         }))
     }
@@ -1040,7 +1034,7 @@ impl Parser {
                 }
                 EffectDef::Flanger(flanger_def) => {
                     let flanger = FlangerBuilder::default()
-                        .window_size(flanger_def.window_size)
+                        .delay_ms(flanger_def.delay_ms)
                         .mix(flanger_def.mix)
                         .build()
                         .map_err(|e| format!("Failed to build Flanger: {:?}", e))?;
@@ -1220,7 +1214,7 @@ impl NoteDeclaration {
 }
 
 pub fn parse_dsl(input: &str) -> Result<TrackGrid<FixedTimeNoteSequence>, String> {
-    let mut parser = Parser::new(input);
+    let mut parser = Parser::new(input)?;
     parser.parse()
 }
 
@@ -1448,7 +1442,7 @@ mod tests {
             osc:sine:440.0:0.5:0
         "#;
 
-        let mut parser = Parser::new(input);
+        let mut parser = Parser::new(input).unwrap();
         let script = parser.parse_script().unwrap();
         
         // Verify macro definitions are parsed correctly
@@ -1476,7 +1470,7 @@ mod tests {
             osc:sine:440.0:0.5:0
         "#;
 
-        let mut parser = Parser::new(input);
+        let mut parser = Parser::new(input).unwrap();
         let script = parser.parse_script().unwrap();
         
         // Verify that whitespace is trimmed from expressions
@@ -1496,7 +1490,7 @@ mod tests {
             osc:sine:880.0:0.3:4
         "#;
 
-        let mut parser = Parser::new(input);
+        let mut parser = Parser::new(input).unwrap();
         let script = parser.parse_script().unwrap();
         
         // Verify all macro definitions are parsed
@@ -1523,7 +1517,7 @@ mod tests {
             osc:sine:440.0:0.5:0
         "#;
 
-        let mut parser = Parser::new(input);
+        let mut parser = Parser::new(input).unwrap();
         let script = parser.parse_script().unwrap();
         
         // Verify that valid identifiers with hyphens, underscores, and numbers are accepted
@@ -1627,7 +1621,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Undefined macro '$undefined_macro' encountered on line 3: \n  $undefined_macro")]
     fn test_macro_expansion_undefined() {
         let input = r#"
             FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
@@ -1635,9 +1628,10 @@ mod tests {
             osc:sine:440.0:0.5:0
         "#;
 
-        // The panic happens inside Parser::new, which is called by parse_dsl.
-        // We don't need to check the result, just confirm that the call panics.
-        let _ = parse_dsl(input);
+        let result = parse_dsl(input);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Undefined macro '$undefined_macro'"));
     }
 
     #[test]

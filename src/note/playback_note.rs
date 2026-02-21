@@ -189,7 +189,7 @@ impl PlaybackNote {
             output_sample = delay.apply_effect(output_sample, sample_position);
         }
 
-        // Apply filters before LFOs
+        // Apply filters after envelopes, LFOs, flangers, and delays
         for filter in self.filters.iter_mut() {
             output_sample = filter.apply_effect(output_sample, sample_position);
         }
@@ -199,8 +199,10 @@ impl PlaybackNote {
 
     pub(crate) fn apply_effects_stereo(&mut self, sample: f32, sample_position: f32,
                                 sample_count: u64) -> (f32, f32) {
-        let mut left = self.apply_effects(sample, sample_position, sample_count);
-        let mut right = self.apply_effects(sample, sample_position, sample_count);
+        // Apply effects once to avoid corrupting stateful effects (filters, delays, flangers)
+        let processed = self.apply_effects(sample, sample_position, sample_count);
+        let mut left = processed;
+        let mut right = processed;
 
         // Apply both per-note and track-level panning
         let factor = 1.0;
@@ -208,8 +210,8 @@ impl PlaybackNote {
             left *= factor - (factor * self.panning.cos());
             right *= factor + (factor * self.panning.sin());
         } else if self.panning < 0.0 {
-            left *= factor + (factor *self.panning.cos());
-            right *= factor - (factor *self.panning.sin());
+            left *= factor + (factor * self.panning.cos());
+            right *= factor - (factor * self.panning.sin());
         }
         if self.track_effects.panning > 0.0 {
             left *= factor - (factor * self.track_effects.panning.cos());
@@ -218,7 +220,7 @@ impl PlaybackNote {
             left *= factor + (factor * self.track_effects.panning.cos());
             right *= factor - (factor * self.track_effects.panning.sin());
         }
-        
+
         (left, right)
     }
 }

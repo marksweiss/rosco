@@ -66,10 +66,10 @@ pub(crate) fn load_midi_file_to_tracks<
     SequenceBuilderType: BuilderWrapper<SequenceType>
 >
 (file_path: &str, waveforms: Vec<Waveform>, envelopes: Vec<Envelope>, flangers: Vec<Flanger>,
- delays: Vec<Delay>, lfo: LFO, volume: f32) -> Vec<Track<SequenceType>> {
+ delays: Vec<Delay>, lfo: LFO, volume: f32) -> Result<Vec<Track<SequenceType>>, crate::common::error::RoscoError> {
     let mut midi_time_tracks =
         midi::midi::midi_file_to_tracks::<SequenceType, SequenceBuilderType>(
-            file_path, NoteType::Oscillator);
+            file_path, NoteType::Oscillator)?;
 
     for track in midi_time_tracks.iter_mut() {
         for playback_notes in track.sequence.iter_mut() {
@@ -84,7 +84,7 @@ pub(crate) fn load_midi_file_to_tracks<
         }
     }
 
-    midi_time_tracks
+    Ok(midi_time_tracks)
 }
 
 #[allow(dead_code)]

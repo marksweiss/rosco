@@ -133,7 +133,7 @@ impl<SequenceType: NextNotes + Iterator + SetCurPosition> TrackGrid<SequenceType
     }
 }
 
-fn get_frontier_min_start_time(playback_notes: &Vec<PlaybackNote>) -> f32 {
+fn get_frontier_min_start_time(playback_notes: &[PlaybackNote]) -> f32 {
     let mut start_time_ms = f32::MAX;
     for playback_note in playback_notes.iter() {
         if playback_note.note_start_time_ms() < start_time_ms {
@@ -143,7 +143,7 @@ fn get_frontier_min_start_time(playback_notes: &Vec<PlaybackNote>) -> f32 {
     start_time_ms
 }
 
-fn get_frontier_min_end_time(playback_notes: &Vec<PlaybackNote>, note_time_ms: f32) -> f32 {
+fn get_frontier_min_end_time(playback_notes: &[PlaybackNote], note_time_ms: f32) -> f32 {
     let mut end_time_ms = f32::MAX;
 
     // First pass, is what is the earliest end time in the future, after note_time_ms

@@ -8,7 +8,6 @@ use crate::envelope::envelope_pair::EnvelopePair;
 // and release end, and the volume level at each of these positions. The envelope defaults to
 // starting from (0, 0) and connecting from their to start, and connecting from the position
 // of the end of sustain to the end of the note, which is the release.
-#[allow(dead_code)]
 #[derive(Builder, Clone, Copy, Debug, Hash)]
 #[builder(build_fn(validate = "Self::validate"))]
 pub(crate) struct Envelope {
@@ -71,7 +70,6 @@ pub (crate) fn default_envelope() -> Envelope {
     }
 }
 
-#[allow(dead_code)]
 impl Envelope {
 
     // TODO MOVE BOTH TO FREE FUNCTIONS AND JUST TAKE THE ADSR VALUES AS ARGS SO CAN BE
@@ -91,11 +89,6 @@ impl Envelope {
         } else {
             self.volume_for_segment_position(self.sustain, self.release, position)
         }
-    }
-
-    pub(crate) fn exponential_volume_factor(&self, position: f32) -> f32 {
-        // (position / self.volume_factor(position)).exp()
-        position.exp()
     }
 
     pub(crate) fn apply_effect(&self, sample: f32, position: f32) -> f32 {

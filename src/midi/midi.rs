@@ -31,11 +31,12 @@ pub(crate) fn midi_file_to_tracks<
     SequenceType: AppendNote + Clone,
     SequenceBuilderType: BuilderWrapper<SequenceType>
 >
-(file_name: &str, note_type: NoteType) -> Vec<Track<SequenceType>> {
+(file_name: &str, note_type: NoteType) -> Result<Vec<Track<SequenceType>>, crate::common::error::RoscoError> {
 
     let mut tracks: Vec<Track<SequenceType>> = Vec::new();
-    let data = std::fs::read(file_name).unwrap();
-    let midi = midly::Smf::parse(&data).unwrap();
+    let data = std::fs::read(file_name)?;
+    let midi = midly::Smf::parse(&data)
+        .map_err(|e| crate::common::error::RoscoError::Midi(format!("Failed to parse MIDI: {}", e)))?;
 
     // Map key is channel and pitch, so there can be more tha one notes in process on at channel
     //  but only one per pitch. This is of course a bug / limitation.
@@ -43,7 +44,7 @@ pub(crate) fn midi_file_to_tracks<
     let mut track_sequence_map: HashMap<u4, SequenceType> = HashMap::new();
 
     let bpm = get_beats_per_minute(&midi);
-    let ticks_per_beat = get_ticks_per_beat(&midi);
+    let ticks_per_beat = get_ticks_per_beat(&midi)?;
     let ticks_per_ms: f32 = get_ticks_per_ms(ticks_per_beat, bpm);
     let mut ticks_since_start: u28 = u28::from(0);
     for track in midi.tracks.iter() {
@@ -152,16 +153,16 @@ pub(crate) fn midi_file_to_tracks<
     }
 
     for (midi_channel, sequence) in track_sequence_map.iter() {
-        let track= TrackBuilder::default()
+        let track = TrackBuilder::default()
             .num(midi_channel.as_int() as i16)
             .sequence(sequence.clone())
             .volume(1.0 / track_sequence_map.len() as f32)
             .build()
-            .unwrap();
+            .map_err(|e| crate::common::error::RoscoError::Midi(format!("Failed to build Track: {:?}", e)))?;
         tracks.push(track);
     }
 
-    tracks
+    Ok(tracks)
 }
 
 #[allow(dead_code)]
@@ -192,16 +193,14 @@ pub(crate) fn get_beats_per_minute(midi: &midly::Smf) -> u8 {
 }
 
 #[allow(dead_code)]
-pub(crate) fn get_ticks_per_beat(midi: &midly::Smf) -> u15 {
+pub(crate) fn get_ticks_per_beat(midi: &midly::Smf) -> Result<u15, crate::common::error::RoscoError> {
     let header = midi.header;
 
     match header.timing {
-        midly::Timing::Metrical(ticks_per_beat) => {
-            return ticks_per_beat;
-        },
-        _ => {
-            panic!("Only Metrical timing is supported");
-        }
+        midly::Timing::Metrical(ticks_per_beat) => Ok(ticks_per_beat),
+        _ => Err(crate::common::error::RoscoError::Midi(
+            "Only Metrical timing is supported".to_string()
+        )),
     }
 }
 

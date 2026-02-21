@@ -43,11 +43,11 @@ pub(crate) fn play() {
         .build().unwrap();
     // Flangers
     let flanger = FlangerBuilder::default()
-        .window_size(12)
+        .delay_ms(5.0)
         .mix(0.15)
         .build().unwrap();
     let flanger_2 = FlangerBuilder::default()
-        .window_size(6)
+        .delay_ms(3.0)
         .mix(0.5)
         .build().unwrap();
     // LFOs

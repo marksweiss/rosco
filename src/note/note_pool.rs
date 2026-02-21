@@ -10,7 +10,6 @@ pub struct NotePool<NoteType> {
 
 impl<NoteType> NotePool<NoteType> {
     
-    #[allow(dead_code)]
     pub fn new<NoteBuilderType: BuilderWrapper<NoteType>>(capacity: usize) -> Self {
         let mut available = VecDeque::with_capacity(capacity);
         // Pre-allocate PlaybackNotes
@@ -20,7 +19,6 @@ impl<NoteType> NotePool<NoteType> {
         Self { available, capacity }
     }
     
-    #[allow(dead_code)]
     pub fn acquire(&mut self) -> Option<NoteType> {
         self.available.pop_front()
     }

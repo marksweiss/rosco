@@ -1,7 +1,6 @@
 use crate::audio_gen::oscillator;
 use crate::audio_gen::oscillator::{get_gaussian_noise_sample, OscillatorTables};
 use crate::audio_gen::oscillator::Waveform;
-use crate::common::constants::NYQUIST_FREQUENCY;
 // khz samples per second
 use crate::note::playback_note::{NoteType, PlaybackNote};
 
@@ -16,7 +15,7 @@ pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &Osc
     match playback_note.note_type {
         NoteType::Oscillator => {
             let mut sample = 0.0;
-            for waveform in playback_note.note.waveforms.clone() {
+            for waveform in playback_note.note.waveforms.iter().copied() {
                 sample += match waveform {
                     Waveform::GaussianNoise => get_gaussian_noise_sample(),
                     Waveform::Noise => get_gaussian_noise_sample(), // Alias for GaussianNoise
@@ -63,7 +62,7 @@ pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &Osc
     }
 }
 
-pub(crate) fn get_notes_sample(playback_notes: &mut Vec<PlaybackNote>,
+pub(crate) fn get_notes_sample(playback_notes: &mut [PlaybackNote],
                                oscillator_tables: &OscillatorTables,
                                sample_position: f32, sample_count: u64) -> (f32, f32) {
     let mut out_sample_l = 0.0;
@@ -78,16 +77,8 @@ pub(crate) fn get_notes_sample(playback_notes: &mut Vec<PlaybackNote>,
         out_sample_r += next_samples.1;
     }
 
-    if out_sample_l >= NYQUIST_FREQUENCY {
-        out_sample_l = NYQUIST_FREQUENCY - 1.0;
-    } else if out_sample_l <= -NYQUIST_FREQUENCY {
-        out_sample_l = -NYQUIST_FREQUENCY + 1.0;
-    }
-    if out_sample_r >= NYQUIST_FREQUENCY {
-        out_sample_r = NYQUIST_FREQUENCY - 1.0;
-    } else if out_sample_r <= -NYQUIST_FREQUENCY {
-        out_sample_r = -NYQUIST_FREQUENCY + 1.0;
-    }
+    out_sample_l = out_sample_l.clamp(-1.0, 1.0);
+    out_sample_r = out_sample_r.clamp(-1.0, 1.0);
 
     (out_sample_l, out_sample_r)
 }

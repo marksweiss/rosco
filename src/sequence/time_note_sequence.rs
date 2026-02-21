@@ -35,7 +35,7 @@ impl AppendNote for TimeNoteSequence {
 }
 
 impl AppendNotes for TimeNoteSequence {
-    fn append_notes(&mut self, notes: &Vec<PlaybackNote>) {
+    fn append_notes(&mut self, notes: &[PlaybackNote]) {
         self.append_notes(notes);
     }
 }
@@ -68,11 +68,11 @@ impl IterMutWrapper for TimeNoteSequence {
 impl TimeNoteSequence {
 
     // Manage PlaybackNotes
-    pub(crate) fn append_notes(&mut self, playback_notes: &Vec<PlaybackNote>) {
-        self.validate_notes_to_add(&playback_notes);
+    pub(crate) fn append_notes(&mut self, playback_notes: &[PlaybackNote]) {
+        self.validate_notes_to_add(playback_notes);
 
         if self.frontier_indexes.is_empty() {
-            self.sequence.push(playback_notes.clone());
+            self.sequence.push(playback_notes.to_vec());
             // Went from no indexes with notes to the 0th index now has notes, start of frontier
             self.frontier_indexes.push_back(0);
             return;
@@ -86,12 +86,12 @@ impl TimeNoteSequence {
         let max_frontier_index = self.frontier_indexes[self.frontier_indexes.len() - 1];
         let min_frontier_start_time_ms = self.get_frontier_min_start_time();
         if float_eq(min_frontier_start_time_ms, playback_notes[0].note_start_time_ms()) {
-            self.sequence[max_frontier_index].append(&mut playback_notes.clone());
+            self.sequence[max_frontier_index].extend_from_slice(playback_notes);
         } else {
             if min_frontier_start_time_ms > playback_notes[0].note_start_time_ms() {
                 panic!("PlaybackNotes must be appended sorted by start time");
             }
-            self.sequence.push(playback_notes.clone());
+            self.sequence.push(playback_notes.to_vec());
             self.frontier_indexes.push_back(max_frontier_index + 1);
         }
     }
@@ -290,7 +290,7 @@ impl TimeNoteSequence {
         end_time_ms
     }
 
-    fn validate_notes_to_add(&self, playback_notes: &Vec<PlaybackNote>) {
+    fn validate_notes_to_add(&self, playback_notes: &[PlaybackNote]) {
         for playback_note in playback_notes {
             if playback_note.note_start_time_ms() < 0.0 {
                 panic!("PlaybackNote start time must be >= 0.0");

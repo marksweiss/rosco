@@ -4,7 +4,6 @@ use crate::audio_gen::oscillator::{get_gaussian_noise_sample, get_sample, Oscill
 use crate::audio_gen::oscillator::Waveform;
 use crate::common::constants::{DEFAULT_LFO_AMPLITUDE, SAMPLE_RATE};
 
-#[allow(dead_code)]
 #[derive(Builder, Clone, Debug, PartialEq)]
 pub(crate) struct LFO {
     #[builder(default = "SAMPLE_RATE / 10.0", setter(custom))]
@@ -45,9 +44,8 @@ impl LFOBuilder {
 }
 
 impl LFO {
-    #[allow(dead_code)]
     pub(crate) fn apply_effect(&self, mut sample: f32, sample_count: u64) -> f32 {
-        for waveform in self.waveforms.clone() {
+        for waveform in self.waveforms.iter().copied() {
             sample += match waveform {
                 Waveform::GaussianNoise => get_gaussian_noise_sample(),
                 Waveform::Noise => get_gaussian_noise_sample(), // Alias for GaussianNoise

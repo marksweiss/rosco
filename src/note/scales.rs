@@ -1,7 +1,6 @@
 use crate::note::constants::PITCH_TO_FREQ_HZ;
 use std::fmt;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WesternPitch {
     C,
@@ -40,7 +39,6 @@ pub(crate) enum ArabicScale {
     Saba,
 }
 
-#[allow(dead_code)]
 impl WesternPitch {
     pub fn get_pitch_index(&self) -> u8 {
         match self {

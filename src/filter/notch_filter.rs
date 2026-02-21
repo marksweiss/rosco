@@ -104,8 +104,8 @@ impl NotchFilter {
 
     /// Apply the IIR filter using the current coefficients
     fn apply_iir_filter(&mut self, sample: f32) -> f32 {
-        // Direct Form II implementation
-        let w = sample - self.coefficients.a1 * self.x_history[0] - self.coefficients.a2 * self.x_history[1];
+        // Direct Form II implementation with denormal protection
+        let w = sample + 1e-18 - self.coefficients.a1 * self.x_history[0] - self.coefficients.a2 * self.x_history[1];
         let output = self.coefficients.b0 * w + self.coefficients.b1 * self.x_history[0] + self.coefficients.b2 * self.x_history[1];
         
         // Update history
