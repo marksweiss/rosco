@@ -15,6 +15,7 @@ static WAV_SPEC: hound::WavSpec = hound::WavSpec {
     sample_format: hound::SampleFormat::Int,
 };
 
+// TODO CAN HOST, DEVICE and CONFIG BE STRUCT-OWNED AND ALLOCATED AT INIT TIME?
 #[allow(dead_code)]
 pub(crate) fn gen_note_stream(playback_note: PlaybackNote, oscillator_tables: OscillatorTables) {
     let host = cpal::default_host();

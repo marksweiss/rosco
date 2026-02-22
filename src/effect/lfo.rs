@@ -43,6 +43,7 @@ impl LFOBuilder {
     }
 }
 
+// TODO EXPLAIN HOW THIS IS AN LFO
 impl LFO {
     pub(crate) fn apply_effect(&self, mut sample: f32, sample_count: u64) -> f32 {
         for waveform in self.waveforms.iter().copied() {

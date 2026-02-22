@@ -48,7 +48,7 @@ impl SampledNote {
         }
     }
     
-    // TODO Can now add range and "scrach" kinds of access to the buffer
+    // TODO Can now add range and "scrtach" kinds of access to the buffer
     
     pub(crate) fn get_sample_at(&self, index: usize) -> f32 {
         self.sample_buf[index]
