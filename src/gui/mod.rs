@@ -190,16 +190,29 @@ impl RoscoGuiApp {
     }
 
     fn render_effects(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Effects Rack");
-        ui.add_space(4.0);
-
-        let changes = self.effects.render(ui);
-        for change in changes {
-            match self.audio_bridge.send_parameter_update(change.update) {
-                Ok(()) => self.status_message = change.description,
-                Err(e) => self.status_message = format!("Error: {}", e),
+        ui.columns(2, |cols| {
+            // Left column: effects chain (LFO through Filter)
+            cols[0].heading("Effects Rack");
+            cols[0].add_space(4.0);
+            let changes = self.effects.render_effects(&mut cols[0]);
+            for change in changes {
+                match self.audio_bridge.send_parameter_update(change.update) {
+                    Ok(()) => self.status_message = change.description,
+                    Err(e) => self.status_message = format!("Error: {}", e),
+                }
             }
-        }
+
+            // Right column: equalizer always visible
+            cols[1].heading("Equalizer");
+            cols[1].add_space(4.0);
+            let changes = self.effects.render_equalizer_panel(&mut cols[1]);
+            for change in changes {
+                match self.audio_bridge.send_parameter_update(change.update) {
+                    Ok(()) => self.status_message = change.description,
+                    Err(e) => self.status_message = format!("Error: {}", e),
+                }
+            }
+        });
     }
 
     fn render_sequencer(&mut self, ui: &mut egui::Ui) {
