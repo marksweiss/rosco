@@ -38,8 +38,8 @@ pub(crate) fn midi_file_to_tracks<
     let midi = midly::Smf::parse(&data)
         .map_err(|e| crate::common::error::RoscoError::Midi(format!("Failed to parse MIDI: {}", e)))?;
 
-    // Map key is channel and pitch, so there can be more tha one notes in process on at channel
-    //  but only one per pitch. This is of course a bug / limitation.
+    // Map key is channel and pitch, so there can be more than one note in process on a channel
+    //  but only one per pitch. This is a bug / limitation.
     let mut track_notes_map: HashMap<NoteKey, PlaybackNote>= HashMap::new();
     let mut track_sequence_map: HashMap<u4, SequenceType> = HashMap::new();
 
