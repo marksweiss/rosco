@@ -6,7 +6,7 @@ use crate::audio_gen::oscillator::Waveform;
 use crate::effect::delay::DelayBuilder;
 use crate::effect::flanger::{FlangerBuilder};
 use crate::effect::lfo::{LFOBuilder};
-use crate::envelope::envelope::{EnvelopeBuilder};
+use crate::envelope::envelope::{EnvelopeBuilder, EnvelopeCurve};
 use crate::envelope::envelope_pair::EnvelopePair;
 use crate::filter::low_pass_filter::{LowPassFilterBuilder};
 use crate::meter::durations::{DurationType};
@@ -183,9 +183,13 @@ pub enum EffectDef {
 #[allow(dead_code)]
 pub struct EnvelopeDef {
     pub attack: (f32, f32),
+    pub attack_curve: EnvelopeCurve,
     pub decay: (f32, f32),
+    pub decay_curve: EnvelopeCurve,
     pub sustain: (f32, f32),
+    pub sustain_curve: EnvelopeCurve,
     pub release: (f32, f32),
+    pub release_curve: EnvelopeCurve,
 }
 
 #[derive(Debug, Clone)]
@@ -651,29 +655,44 @@ impl Parser {
         self.skip_comment_lines();
 
         self.expect("a")?;
-        let attack = self.parse_envelope_pair()?;
+        let (attack, attack_curve) = self.parse_envelope_pair()?;
         self.expect("d")?;
-        let decay = self.parse_envelope_pair()?;
+        let (decay, decay_curve) = self.parse_envelope_pair()?;
         self.expect("s")?;
-        let sustain = self.parse_envelope_pair()?;
+        let (sustain, sustain_curve) = self.parse_envelope_pair()?;
         self.expect("r")?;
-        let release = self.parse_envelope_pair()?;
+        let (release, release_curve) = self.parse_envelope_pair()?;
 
         Ok(EnvelopeDef {
             attack,
+            attack_curve,
             decay,
+            decay_curve,
             sustain,
+            sustain_curve,
             release,
+            release_curve,
         })
     }
 
-    fn parse_envelope_pair(&mut self) -> Result<(f32, f32), String> {
+    fn parse_envelope_pair(&mut self) -> Result<((f32, f32), EnvelopeCurve), String> {
         self.skip_comment_lines();
 
         let first = self.parse_f32()?;
         self.expect(",")?;
         let second = self.parse_f32()?;
-        Ok((first, second))
+        let curve = if self.current < self.tokens.len() && self.peek() == "," {
+            self.advance(); // consume comma
+            let curve_token = self.advance();
+            match curve_token.as_str() {
+                "exp" => EnvelopeCurve::Exponential,
+                "lin" => EnvelopeCurve::Linear,
+                _ => return Err(format!("Unknown curve type: {}", curve_token)),
+            }
+        } else {
+            EnvelopeCurve::Linear
+        };
+        Ok(((first, second), curve))
     }
 
     fn parse_effect_def(&mut self) -> Result<EffectDef, String> {
@@ -1010,6 +1029,10 @@ impl Parser {
                 .decay(EnvelopePair(env_def.decay.0, env_def.decay.1))
                 .sustain(EnvelopePair(env_def.sustain.0, env_def.sustain.1))
                 .release(EnvelopePair(env_def.release.0, env_def.release.1))
+                .attack_curve(env_def.attack_curve)
+                .decay_curve(env_def.decay_curve)
+                .sustain_curve(env_def.sustain_curve)
+                .release_curve(env_def.release_curve)
                 .build()
                 .map_err(|e| format!("Failed to build Envelope: {:?}", e))?;
             envelopes.push(envelope);
@@ -1699,4 +1722,73 @@ mod tests {
         assert_eq!(filter2.resonance, 0.2);
         assert_eq!(filter2.mix, 0.6);
     }
-} 
+
+    #[test]
+    fn test_parse_envelope_with_curve_types() {
+        let input = r#"
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+            a 0.1,0.8,exp d 0.3,0.6,lin s 0.8,0.4,lin r 1.0,0.0,exp
+            osc:sine:440.0:0.5:0
+        "#;
+
+        let result = parse_dsl(input);
+        if let Err(e) = &result {
+            println!("Parse error: {}", e);
+        }
+        assert!(result.is_ok());
+
+        let track_grid = result.unwrap();
+        assert_eq!(track_grid.tracks.len(), 1);
+
+        let track = &track_grid.tracks[0];
+        assert_eq!(track.effects.envelopes.len(), 1);
+
+        let envelope = &track.effects.envelopes[0];
+        assert_eq!(envelope.attack_curve, EnvelopeCurve::Exponential);
+        assert_eq!(envelope.decay_curve, EnvelopeCurve::Linear);
+        assert_eq!(envelope.sustain_curve, EnvelopeCurve::Linear);
+        assert_eq!(envelope.release_curve, EnvelopeCurve::Exponential);
+    }
+
+    #[test]
+    fn test_parse_envelope_without_curve_types_defaults_linear() {
+        let input = r#"
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+            a 0.1,0.8 d 0.3,0.6 s 0.8,0.4 r 1.0,0.0
+            osc:sine:440.0:0.5:0
+        "#;
+
+        let result = parse_dsl(input);
+        assert!(result.is_ok());
+
+        let track_grid = result.unwrap();
+        let track = &track_grid.tracks[0];
+        let envelope = &track.effects.envelopes[0];
+
+        assert_eq!(envelope.attack_curve, EnvelopeCurve::Linear);
+        assert_eq!(envelope.decay_curve, EnvelopeCurve::Linear);
+        assert_eq!(envelope.sustain_curve, EnvelopeCurve::Linear);
+        assert_eq!(envelope.release_curve, EnvelopeCurve::Linear);
+    }
+
+    #[test]
+    fn test_parse_envelope_mixed_curve_some_omitted() {
+        let input = r#"
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+            a 0.1,0.8,exp d 0.3,0.6 s 0.8,0.4,exp r 1.0,0.0
+            osc:sine:440.0:0.5:0
+        "#;
+
+        let result = parse_dsl(input);
+        assert!(result.is_ok());
+
+        let track_grid = result.unwrap();
+        let track = &track_grid.tracks[0];
+        let envelope = &track.effects.envelopes[0];
+
+        assert_eq!(envelope.attack_curve, EnvelopeCurve::Exponential);
+        assert_eq!(envelope.decay_curve, EnvelopeCurve::Linear);
+        assert_eq!(envelope.sustain_curve, EnvelopeCurve::Exponential);
+        assert_eq!(envelope.release_curve, EnvelopeCurve::Linear);
+    }
+}
