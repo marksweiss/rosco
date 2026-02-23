@@ -5,7 +5,7 @@ use crate::effect::delay::Delay;
 use crate::effect::flanger::Flanger;
 use crate::effect::lfo::LFO;
 use crate::envelope::envelope::Envelope;
-use crate::note::playback_note::{NoteType, PlaybackNote};
+use crate::note::playback_note::{NoteSource, NoteType, PlaybackNote};
 use crate::sequence::note_sequence_trait::{AppendNote, AppendNotes, BuilderWrapper, IterMutWrapper,
     NextNotes, SetCurPosition};
 use crate::track::track::{Track, TrackBuilder};
@@ -34,8 +34,7 @@ pub(crate) fn build_sampled_playback_note(sampled_note_pool: &mut NotePool<Sampl
     sampled_note.set_sample_buf(&sample_buf.buf);
 
     let mut playback_note = playback_note_pool.acquire().unwrap();
-    playback_note.note_type = NoteType::Sample;
-    playback_note.sampled_note = sampled_note;
+    playback_note.note_source = NoteSource::Sample(sampled_note);
     playback_note.playback_start_time_ms = start_time;
     playback_note.playback_end_time_ms = start_time + ((sample_buf.len as f32 / common::constants::SAMPLE_RATE) * 1000.0);
     playback_note.playback_sample_start_time = start_time as u64;
@@ -74,8 +73,10 @@ pub(crate) fn load_midi_file_to_tracks<
     for track in midi_time_tracks.iter_mut() {
         for playback_notes in track.sequence.iter_mut() {
             for playback_note in playback_notes {
-                playback_note.note.waveforms = waveforms.clone();
-                playback_note.note.volume = volume;
+                if let Some(note) = playback_note.note_mut() {
+                    note.waveforms = waveforms.clone();
+                    note.volume = volume;
+                }
                 playback_note.envelopes = envelopes.clone();
                 playback_note.flangers = flangers.clone();
                 playback_note.delays = delays.clone();
@@ -94,9 +95,7 @@ pub(crate) fn load_note_to_new_track<
 >
 (mut playback_note: PlaybackNote, volume: f32) -> Track<SequenceType> {
     let mut sequence = SequenceBuilderType::new();
-    // NOTE: generically modifies volume of BOTH underlying notes
-    playback_note.sampled_note.volume = volume;
-    playback_note.note.volume = volume;
+    playback_note.set_note_volume(volume);
     sequence.append_note(playback_note.clone());
     TrackBuilder::default()
         .sequence(sequence)
@@ -111,7 +110,7 @@ pub(crate) fn load_notes_to_new_track<
 (playback_notes: &mut Vec<PlaybackNote>, volume: f32) -> Track<SequenceType> {
     let mut sequence = SequenceBuilderType::new();
     for playback_note in playback_notes.iter_mut() {
-        playback_note.sampled_note.volume = volume;
+        playback_note.set_note_volume(volume);
     }
     sequence.append_notes(&playback_notes.clone());
     TrackBuilder::default()
@@ -124,12 +123,15 @@ pub(crate) fn set_notes_offset(playback_notes: &mut Vec<PlaybackNote>, offset: f
     for playback_note in playback_notes.iter_mut() {
         playback_note.playback_start_time_ms += offset;
         playback_note.playback_end_time_ms += offset;
-        playback_note.sampled_note.start_time_ms += offset;
-        playback_note.sampled_note.end_time_ms += offset;
-
-        if playback_note.note_type == NoteType::Oscillator{
-            playback_note.note.start_time_ms += offset;
-            playback_note.note.end_time_ms += offset;
+        match &mut playback_note.note_source {
+            NoteSource::Oscillator(note) => {
+                note.start_time_ms += offset;
+                note.end_time_ms += offset;
+            }
+            NoteSource::Sample(sampled_note) => {
+                sampled_note.start_time_ms += offset;
+                sampled_note.end_time_ms += offset;
+            }
         }
     }
 }

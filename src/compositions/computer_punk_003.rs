@@ -81,8 +81,8 @@ pub(crate) fn play() {
     );
 
     let mut piano_note_1_rev = piano_note_1.clone();
-    piano_note_1_rev.sampled_note.reverse();
-    piano_note_1_rev.sampled_note.volume = sampled_note_rev_volume;
+    piano_note_1_rev.sampled_note_mut().unwrap().reverse();
+    piano_note_1_rev.sampled_note_mut().unwrap().volume = sampled_note_rev_volume;
     piano_note_1_rev.flangers = vec![flanger.clone(), flanger_2.clone()];
     let reverse_delay = delay.clone();
     piano_note_1_rev.delays = vec![reverse_delay];
@@ -103,17 +103,17 @@ pub(crate) fn play() {
 
     let reverse_guitar_delay = delay.clone();
     let mut guitar_note_1_rev = guitar_note_1.clone();
-    guitar_note_1_rev.sampled_note.reverse();
-    guitar_note_1_rev.sampled_note.volume = sampled_note_rev_volume;
+    guitar_note_1_rev.sampled_note_mut().unwrap().reverse();
+    guitar_note_1_rev.sampled_note_mut().unwrap().volume = sampled_note_rev_volume;
     guitar_note_1_rev.flangers = vec![flanger.clone(),
                                                          flanger_2.clone(),
                                                          flanger.clone()];
     guitar_note_1_rev.delays = vec![reverse_guitar_delay.clone()];
     
     let mut piano_rest_note = piano_note_1.clone();
-    piano_rest_note.sampled_note.volume = 0.0;
+    piano_rest_note.sampled_note_mut().unwrap().volume = 0.0;
     let mut guitar_rest_note = guitar_note_1.clone();
-    guitar_rest_note.sampled_note.volume = 0.0;
+    guitar_rest_note.sampled_note_mut().unwrap().volume = 0.0;
 
     // Create Tracks and append initial notes
     let piano_sequence: TimeNoteSequence= TimeNoteSequenceBuilder::default().build().unwrap();
@@ -132,7 +132,7 @@ pub(crate) fn play() {
     }
 
     // Add additional notes to the sequence
-    let note_dur = piano_note_1.sampled_note.duration_ms();
+    let note_dur = piano_note_1.sampled_note().unwrap().duration_ms();
     piano_track_1.sequence.append_note(
         adjust_note_start_end_time(
             &mut piano_note_1, 0.0, note_dur));

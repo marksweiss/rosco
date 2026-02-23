@@ -5,7 +5,7 @@ use nodi::midly::num::{u28, u4, u7, u15};
 
 use crate::note::constants;
 use crate::note::note::NoteBuilder;
-use crate::note::playback_note::{NoteType, PlaybackNote, PlaybackNoteBuilder};
+use crate::note::playback_note::{NoteSource, NoteType, PlaybackNote, PlaybackNoteBuilder};
 use crate::note::sampled_note::SampledNoteBuilder;
 use crate::sequence::note_sequence_trait::{AppendNote, BuilderWrapper};
 use crate::track::track::{Track, TrackBuilder};
@@ -81,7 +81,7 @@ pub(crate) fn midi_file_to_tracks<
                                             let note_start_time_ms =
                                                 ticks_since_start.as_int() as f32 / ticks_per_ms;
                                             match note_type {
-                                                NoteType::Oscillator => { 
+                                                NoteType::Oscillator => {
                                                     let note =
                                                         NoteBuilder::default().
                                                             frequency(
@@ -94,8 +94,7 @@ pub(crate) fn midi_file_to_tracks<
                                                     track_notes_map.insert(
                                                        note_key,
                                                        PlaybackNoteBuilder::default()
-                                                           .note_type(note_type)
-                                                           .note(note)
+                                                           .note_source(NoteSource::Oscillator(note))
                                                            .playback_start_time_ms(note_start_time_ms)
                                                            .playback_end_time_ms(note_start_time_ms)
                                                            .build().unwrap());
@@ -110,12 +109,11 @@ pub(crate) fn midi_file_to_tracks<
                                                     track_notes_map.insert(
                                                         note_key,
                                                         PlaybackNoteBuilder::default()
-                                                            .note_type(note_type)
-                                                            .sampled_note(sampled_note)
+                                                            .note_source(NoteSource::Sample(sampled_note))
                                                             .playback_start_time_ms(note_start_time_ms)
                                                             .playback_end_time_ms(note_start_time_ms)
                                                             .build().unwrap());
-                                                    
+
                                                 }
                                             }
                                         }

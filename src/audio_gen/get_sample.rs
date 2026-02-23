@@ -2,7 +2,7 @@ use crate::audio_gen::oscillator;
 use crate::audio_gen::oscillator::{get_gaussian_noise_sample, OscillatorTables};
 use crate::audio_gen::oscillator::Waveform;
 // khz samples per second
-use crate::note::playback_note::{NoteType, PlaybackNote};
+use crate::note::playback_note::{NoteSource, PlaybackNote};
 
 pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &OscillatorTables,
                               sample_position: f32, sample_count: u64) -> (f32, f32) {
@@ -11,50 +11,52 @@ pub(crate) fn get_note_sample(playback_note: &mut PlaybackNote, osc_tables: &Osc
     if num_channels == 1 {
         num_channels = playback_note.track_effects.num_channels;
     }
-    
-    match playback_note.note_type {
-        NoteType::Oscillator => {
+
+    match &mut playback_note.note_source {
+        NoteSource::Oscillator(note) => {
             let mut sample = 0.0;
-            for waveform in playback_note.note.waveforms.iter().copied() {
+            for waveform in note.waveforms.iter().copied() {
                 sample += match waveform {
                     Waveform::GaussianNoise => get_gaussian_noise_sample(),
                     Waveform::Noise => get_gaussian_noise_sample(), // Alias for GaussianNoise
                     Waveform::Saw => oscillator::get_sample(
-                        &osc_tables.saw_table, playback_note.note.frequency, sample_count),
+                        &osc_tables.saw_table, note.frequency, sample_count),
                     Waveform::Sine => oscillator::get_sample(
-                        &osc_tables.sine_table, playback_note.note.frequency, sample_count),
+                        &osc_tables.sine_table, note.frequency, sample_count),
                     Waveform::Square => oscillator::get_sample(
-                        &osc_tables.square_table, playback_note.note.frequency, sample_count),
+                        &osc_tables.square_table, note.frequency, sample_count),
                     Waveform::Triangle => oscillator::get_sample(
-                        &osc_tables.triangle_table, playback_note.note.frequency, sample_count),
+                        &osc_tables.triangle_table, note.frequency, sample_count),
                 }
             }
+            let volume = note.volume;
 
             match num_channels {
                 1 => {
                     let sample = playback_note.apply_effects(
-                        playback_note.note.volume * sample, sample_position, sample_count);
+                        volume * sample, sample_position, sample_count);
                     (sample, sample)
                 }
                 2 => {
                     playback_note.apply_effects_stereo(
-                        playback_note.note.volume * sample, sample_position, sample_count)
+                        volume * sample, sample_position, sample_count)
                 }
                 _ => (0.0, 0.0)
             }
         }
-        NoteType::Sample => {
+        NoteSource::Sample(sampled_note) => {
+            let sample = sampled_note.next_sample();
+            let volume = sampled_note.volume;
+
             match num_channels {
                 1 => {
-                    let mut sample = playback_note.sampled_note.next_sample();
-                    sample = playback_note.apply_effects(
-                        playback_note.note_volume() * sample, sample_position, sample_count);
+                    let sample = playback_note.apply_effects(
+                        volume * sample, sample_position, sample_count);
                     (sample, sample)
                 }
                 2 => {
-                    let sample = playback_note.sampled_note.next_sample();
                     playback_note.apply_effects_stereo(
-                        playback_note.note_volume() * sample, sample_position, sample_count)
+                        volume * sample, sample_position, sample_count)
                 }
                 _ => (0.0, 0.0)
             }

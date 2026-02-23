@@ -16,11 +16,11 @@ pub mod compositions;
 pub mod tui;
 
 use crate::compositions::dsl_1;
-// use crate::compositions::computer_punk_001;
-// use crate::compositions::computer_punk_003;
+use crate::compositions::computer_punk_001;
+use crate::compositions::computer_punk_003;
 
 fn main() {
     dsl_1::play();
-    // computer_punk_001::play();
-    // computer_punk_003::play();
+    computer_punk_001::play();
+    computer_punk_003::play();
 }

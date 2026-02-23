@@ -234,13 +234,11 @@ mod test_grid_note_sequence {
     use crate::common::float_utils::float_eq;
     use crate::note::note::NoteBuilder;
     use crate::note::playback_note;
-    use crate::note::playback_note::NoteType;
     use crate::sequence::grid_note_sequence::GridNoteSequenceBuilder;
 
     #[test]
     fn test_append_note() {
         let note= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(0.0)
                 .build().unwrap()
@@ -257,14 +255,12 @@ mod test_grid_note_sequence {
     #[test]
     fn test_append_notes() {
         let note_1= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(0.0)
                 .end_time_ms(1000.0)
                 .build().unwrap()
         );
         let note_2= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(0.0)
                 .end_time_ms(1000.0)
@@ -285,31 +281,26 @@ mod test_grid_note_sequence {
     #[test]
     fn test_insert_notes_get_notes_at() {
         let note_1= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(2.0)
                 .build().unwrap()
         );
         let note_2= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(2.0)
                 .build().unwrap()
         );
         let note_3= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(0.0)
                 .build().unwrap()
         );
         let note_4= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(0.0)
                 .build().unwrap()
         );
         let note_5= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(1.0)
                 .build().unwrap()
@@ -331,19 +322,16 @@ mod test_grid_note_sequence {
     #[test]
     fn test_insert_note_increment_decrement_get_note_at() {
         let note_1= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(1.0)
                 .build().unwrap()
         );
         let note_2= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(2.0)
                 .build().unwrap()
         );
         let note_3= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(0.0)
                 .build().unwrap()
@@ -390,7 +378,6 @@ mod test_grid_note_sequence {
     #[should_panic(expected = "Note start time must be >= 0.0")]
     fn test_insert_invalid_note() {
         let note_1= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(-1.0)
                 .build().unwrap()

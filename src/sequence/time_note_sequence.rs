@@ -329,13 +329,11 @@ mod test_time_note_sequence {
     use crate::common::float_utils::assert_float_eq;
     use crate::note::note::NoteBuilder;
     use crate::note::playback_note;
-    use crate::note::playback_note::NoteType;
     use crate::sequence::time_note_sequence::TimeNoteSequenceBuilder;
 
     #[test]
     fn test_get_next_notes_window() {
         let mut pb_note_1 = playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(0.0)
                 .end_time_ms(1000.0)
@@ -344,7 +342,6 @@ mod test_time_note_sequence {
         pb_note_1.playback_start_time_ms = 0.0;
         pb_note_1.playback_end_time_ms = 1000.0;
         let mut pb_note_2 = playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(500.0)
                 .end_time_ms(1500.0)
@@ -353,7 +350,6 @@ mod test_time_note_sequence {
         pb_note_2.playback_start_time_ms = 500.0;
         pb_note_2.playback_end_time_ms = 1500.0;
         let mut pb_note_3 = playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(1000.0)
                 .end_time_ms(2000.0)
@@ -362,7 +358,6 @@ mod test_time_note_sequence {
         pb_note_3.playback_start_time_ms = 1000.0;
         pb_note_3.playback_end_time_ms = 2000.0;
         let mut pb_note_4 = playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(1000.0)
                 .end_time_ms(2000.0)
@@ -371,7 +366,6 @@ mod test_time_note_sequence {
         pb_note_4.playback_start_time_ms = 1000.0;
         pb_note_4.playback_end_time_ms = 2000.0;
         let mut pb_note_5 = playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(2500.0)
                 .end_time_ms(3500.0)
@@ -451,7 +445,7 @@ mod test_time_note_sequence {
         assert_float_eq(pb_notes_window[0].playback_end_time_ms, 2500.0);
         assert_float_eq(pb_notes_window[0].playback_duration_ms(), 500.0);
         // 0 volume because it is a rest note
-        assert_float_eq(pb_notes_window[0].note.volume, 0.0);
+        assert_float_eq(pb_notes_window[0].note().unwrap().volume, 0.0);
         
         // 5 start 2500 - 3500
         pb_notes_window = sequence.get_next_notes_window();
@@ -464,31 +458,26 @@ mod test_time_note_sequence {
     #[test]
     fn test_insert() {
         let note_1= playback_note::from_note(
-            NoteType::Oscillator, 
             setup_note()
                 .start_time_ms(0.0)
                 .build().unwrap()
         );
         let note_2= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(500.0)
                 .build().unwrap()
         );
         let note_3= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(1000.0)
                 .build().unwrap()
         );
         let note_4= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(1000.0)
                 .build().unwrap()
         );
         let note_5= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(2500.0)
                 .build().unwrap()
@@ -527,31 +516,26 @@ mod test_time_note_sequence {
     #[test]
     fn test_insert_multi_position() {
         let note_1= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(0.0)
                 .build().unwrap()
         );
         let note_2= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(500.0)
                 .build().unwrap()
         );
         let note_3= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(1000.0)
                 .build().unwrap()
         );
         let note_4= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(1000.0)
                 .build().unwrap()
         );
         let note_5= playback_note::from_note(
-            NoteType::Oscillator,
             setup_note()
                 .start_time_ms(2500.0)
                 .build().unwrap()

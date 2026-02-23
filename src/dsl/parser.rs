@@ -11,7 +11,7 @@ use crate::envelope::envelope_pair::EnvelopePair;
 use crate::filter::low_pass_filter::{LowPassFilterBuilder};
 use crate::meter::durations::{DurationType};
 use crate::note::note::{NoteBuilder};
-use crate::note::playback_note::{NoteType, PlaybackNote, PlaybackNoteBuilder};
+use crate::note::playback_note::{NoteSource, PlaybackNote, PlaybackNoteBuilder};
 use crate::note::sampled_note::{SampledNoteBuilder};
 use crate::note::scales::WesternPitch;
 use crate::sequence::fixed_time_note_sequence::{FixedTimeNoteSequence, FixedTimeNoteSequenceBuilder};
@@ -1139,8 +1139,7 @@ impl Parser {
                     .map_err(|e| format!("Failed to build Note: {:?}", e))?;
 
                 PlaybackNoteBuilder::default()
-                    .note_type(NoteType::Oscillator)
-                    .note(note)
+                    .note_source(NoteSource::Oscillator(note))
                     .playback_start_time_ms(start_time_ms)
                     .playback_end_time_ms(end_time_ms)
                     .filters(filters.clone())
@@ -1157,8 +1156,7 @@ impl Parser {
                     .map_err(|e| format!("Failed to build SampledNote: {:?}", e))?;
 
                 PlaybackNoteBuilder::default()
-                    .note_type(NoteType::Sample)
-                    .sampled_note(sampled_note)
+                    .note_source(NoteSource::Sample(sampled_note))
                     .playback_start_time_ms(start_time_ms)
                     .playback_end_time_ms(end_time_ms)
                     .filters(filters.clone())

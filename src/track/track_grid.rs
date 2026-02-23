@@ -3,7 +3,7 @@ use derive_builder::Builder;
 use crate::common::constants::{FLOAT_EPSILON, SAMPLE_RATE};
 use crate::common::float_utils::{float_eq, float_geq, float_leq};
 use crate::note::playback_note;
-use crate::note::playback_note::{PlaybackNoteBuilder, PlaybackNote, NoteType};
+use crate::note::playback_note::{PlaybackNoteBuilder, PlaybackNote, NoteSource};
 use crate::sequence::note_sequence_trait::{NextNotes, SetCurPosition};
 use crate::track::track::Track;
 
@@ -27,13 +27,13 @@ impl<SequenceType: NextNotes + Iterator + SetCurPosition> TrackGrid<SequenceType
             
             // TODO BUG
             //  adjust playback_sample_start_time_ms and end_time_ms and sample_index if SampleNote
-            if playback_note.note_type == NoteType::Sample {
+            if let NoteSource::Sample(sampled_note) = &mut new_pb_note.note_source {
                 new_pb_note.playback_sample_start_time =
                     (new_pb_note.playback_start_time_ms * (SAMPLE_RATE / 1000.0)).floor() as u64;
                 new_pb_note.playback_sample_end_time =
                     (new_pb_note.playback_end_time_ms * (SAMPLE_RATE / 1000.0)).floor() as u64;
-                new_pb_note.sampled_note.sample_index = ((new_pb_note.playback_start_time_ms -
-                    new_pb_note.sampled_note.start_time_ms) * (SAMPLE_RATE / 1000.0)) as usize;
+                sampled_note.sample_index = ((new_pb_note.playback_start_time_ms -
+                    sampled_note.start_time_ms) * (SAMPLE_RATE / 1000.0)) as usize;
             }
 
             new_pb_note
@@ -60,24 +60,11 @@ impl<SequenceType: NextNotes + Iterator + SetCurPosition> TrackGrid<SequenceType
                         .delays(playback_note.delays.clone())
                         .track_effects(track.effects.clone());
                 
-                match playback_note.note_type {
-                    NoteType::Oscillator => {
-                        track_playback_notes.push(
-                            playback_note_builder
-                                .note_type(NoteType::Oscillator)
-                                .note(playback_note.note)
-                                .build().unwrap()
-                        );
-                    }
-                    NoteType::Sample => {
-                        track_playback_notes.push(
-                            playback_note_builder
-                                .note_type(NoteType::Sample)
-                                .sampled_note(playback_note.sampled_note)
-                                .build().unwrap()
-                        );
-                    }
-                }
+                track_playback_notes.push(
+                    playback_note_builder
+                        .note_source(playback_note.note_source.clone())
+                        .build().unwrap()
+                );
             }
         }
 
@@ -186,7 +173,7 @@ mod test_sequence_grid {
     use crate::effect::{flanger, lfo};
     use crate::envelope::envelope;
     use crate::note::note::NoteBuilder;
-    use crate::note::playback_note::PlaybackNoteBuilder;
+    use crate::note::playback_note::{NoteSource, PlaybackNoteBuilder};
     use crate::sequence::grid_note_sequence::GridNoteSequenceBuilder;
     use crate::track::track::TrackBuilder;
     use crate::track::track_effects::TrackEffectsBuilder;
@@ -205,22 +192,22 @@ mod test_sequence_grid {
                                 .sequence(
                                     vec![vec![
                                     PlaybackNoteBuilder::default()
-                                        .note(
+                                        .note_source(NoteSource::Oscillator(
                                             setup_note()
                                                 .start_time_ms(0.0)
                                                 .end_time_ms(1000.0)
                                                 .build().unwrap()
-                                        )
+                                        ))
                                         .playback_start_time_ms(0.0)
                                         .playback_end_time_ms(1000.0)
                                         .build().unwrap(),
                                     PlaybackNoteBuilder::default()
-                                        .note(
+                                        .note_source(NoteSource::Oscillator(
                                             setup_note()
                                                 .start_time_ms(1.0)
                                                 .end_time_ms(1000.0)
                                                 .build().unwrap()
-                                        )
+                                        ))
                                         .playback_start_time_ms(0.0)
                                         .playback_end_time_ms(1000.0)
                                         .build().unwrap()
