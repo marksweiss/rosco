@@ -5,6 +5,7 @@ use crate::tui::audio_bridge::ParameterUpdate;
 
 use super::effects::EffectChange;
 use super::sequencer::NUM_STEPS;
+use super::theme::GuiTheme;
 
 // --- Transport state ---
 
@@ -43,21 +44,15 @@ impl Default for TransportState {
     }
 }
 
-// Colors
-const PLAY_COLOR: Color32 = Color32::from_rgb(0, 220, 80);
-const STOP_COLOR: Color32 = Color32::from_rgb(220, 60, 50);
-const STEP_ACTIVE: Color32 = Color32::from_rgb(255, 255, 60);
-const STEP_INACTIVE: Color32 = Color32::from_rgb(55, 55, 60);
-
 impl TransportState {
     /// Render the transport bar. Returns parameter changes.
-    pub fn render(&mut self, ui: &mut egui::Ui) -> Vec<EffectChange> {
+    pub fn render(&mut self, ui: &mut egui::Ui, theme: &GuiTheme) -> Vec<EffectChange> {
         let mut changes = Vec::new();
 
         ui.horizontal(|ui| {
             // Play/Stop buttons
             let play_label = if self.is_playing { "\u{23F8}" } else { "\u{25B6}" }; // ⏸ or ▶
-            let play_color = if self.is_playing { PLAY_COLOR } else { Color32::WHITE };
+            let play_color = if self.is_playing { theme.play_color() } else { Color32::WHITE };
             if ui
                 .add(
                     egui::Button::new(egui::RichText::new(play_label).size(18.0).color(play_color))
@@ -82,7 +77,7 @@ impl TransportState {
             // Stop (rewind)
             if ui
                 .add(
-                    egui::Button::new(egui::RichText::new("\u{23F9}").size(18.0).color(STOP_COLOR))
+                    egui::Button::new(egui::RichText::new("\u{23F9}").size(18.0).color(theme.stop_color()))
                         .min_size(vec2(36.0, 28.0)),
                 )
                 .clicked()
@@ -128,7 +123,7 @@ impl TransportState {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 for step in 0..NUM_STEPS {
                     let is_current = self.is_playing && self.current_step == step;
-                    let color = if is_current { STEP_ACTIVE } else { STEP_INACTIVE };
+                    let color = if is_current { theme.transport_step_active() } else { theme.transport_step_inactive() };
                     let (rect, _) = ui.allocate_exact_size(vec2(8.0, 12.0), egui::Sense::hover());
                     if ui.is_rect_visible(rect) {
                         ui.painter().rect_filled(rect, 2.0, color);

@@ -51,3 +51,5 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # GUI dependencies
 eframe = "0.30"
+rustfft = "6"
+rfd = "0.15"

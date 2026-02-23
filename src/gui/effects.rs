@@ -1,4 +1,5 @@
 use eframe::egui;
+use serde::{Deserialize, Serialize};
 
 use crate::tui::audio_bridge::{FilterKind, ParameterUpdate};
 
@@ -10,6 +11,7 @@ pub struct EffectChange {
 
 // --- Per-effect state structs ---
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LfoState {
     pub enabled: bool,
     pub frequency: f32,
@@ -26,6 +28,7 @@ impl Default for LfoState {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TremoloState {
     pub enabled: bool,
     pub mod_freq: f32,
@@ -42,6 +45,7 @@ impl Default for TremoloState {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct VibratoState {
     pub enabled: bool,
     pub avg_delay: f32,
@@ -60,6 +64,7 @@ impl Default for VibratoState {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FlangerState {
     pub enabled: bool,
     pub delay_ms: f32,
@@ -82,6 +87,7 @@ impl Default for FlangerState {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DelayState {
     pub enabled: bool,
     pub mix: f32,
@@ -104,6 +110,7 @@ impl Default for DelayState {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChorusState {
     pub enabled: bool,
     pub chorus_count: usize,
@@ -138,6 +145,7 @@ impl ChorusState {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FilterState {
     pub enabled: bool,
     pub kind: FilterKind,
@@ -158,6 +166,7 @@ impl Default for FilterState {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct EqualizerState {
     pub enabled: bool,
     pub gains: [f32; 8],
@@ -176,6 +185,7 @@ impl Default for EqualizerState {
 
 // --- Main effects rack ---
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct EffectsRackState {
     pub lfo: LfoState,
     pub tremolo: TremoloState,

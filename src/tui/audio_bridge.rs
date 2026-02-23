@@ -5,7 +5,7 @@ use std::sync::Arc;
 use atomic_float::AtomicF32;
 use std::sync::atomic::Ordering;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FilterKind {
     LowPass,
     HighPass,
@@ -89,6 +89,9 @@ pub enum AudioFeedback {
     PlaybackPosition(f32),
     CpuUsage(f32),
     BufferHealth(f32),
+    WaveformData(Box<[f32; 512]>),
+    SpectrumData(Box<[f32; 256]>),
+    StepAdvance(usize),
 }
 
 pub struct AudioBridge {

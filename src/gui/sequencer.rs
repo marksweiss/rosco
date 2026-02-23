@@ -1,9 +1,11 @@
 use eframe::egui;
 use eframe::egui::{pos2, vec2, Color32, Rect};
+use serde::{Deserialize, Serialize};
 
 use crate::tui::audio_bridge::ParameterUpdate;
 
 use super::effects::EffectChange;
+use super::theme::GuiTheme;
 
 // --- Constants ---
 
@@ -17,15 +19,9 @@ const HEADER_HEIGHT: f32 = 14.0;
 const TRACK_LABEL_WIDTH: f32 = 40.0;
 const MIXER_WIDTH: f32 = 220.0;
 
-// Colors
-const STEP_ENABLED: Color32 = Color32::from_rgb(0, 230, 100);
-const STEP_DISABLED: Color32 = Color32::from_rgb(50, 50, 55);
-const STEP_PLAYING: Color32 = Color32::from_rgb(255, 255, 60);
-const STEP_HOVER: Color32 = Color32::from_rgb(80, 80, 90);
-
 // --- Step cell ---
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StepCell {
     pub enabled: bool,
     pub velocity: f32, // 0.0–1.0
@@ -42,7 +38,7 @@ impl Default for StepCell {
 
 // --- Track strip ---
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TrackStrip {
     pub steps: [StepCell; NUM_STEPS],
     pub volume: f32,
@@ -83,13 +79,13 @@ impl Default for SequencerState {
 
 impl SequencerState {
     /// Render the full sequencer panel. Returns parameter changes.
-    pub fn render(&mut self, ui: &mut egui::Ui) -> Vec<EffectChange> {
+    pub fn render(&mut self, ui: &mut egui::Ui, theme: &GuiTheme) -> Vec<EffectChange> {
         let mut changes = Vec::new();
 
         ui.horizontal(|ui| {
             // Left: step grid
             ui.vertical(|ui| {
-                self.render_grid(ui, &mut changes);
+                self.render_grid(ui, &mut changes, theme);
             });
 
             ui.separator();
@@ -106,7 +102,7 @@ impl SequencerState {
 
     // --- Step grid ---
 
-    fn render_grid(&mut self, ui: &mut egui::Ui, changes: &mut Vec<EffectChange>) {
+    fn render_grid(&mut self, ui: &mut egui::Ui, changes: &mut Vec<EffectChange>, theme: &GuiTheme) {
         let text_color = ui.visuals().text_color();
 
         // Calculate total grid dimensions
@@ -222,21 +218,22 @@ impl SequencerState {
                 if ui.is_rect_visible(rect) {
                     let enabled_now = self.tracks[track_idx].steps[step_idx].enabled;
 
+                    let step_enabled_c = theme.step_enabled();
                     let bg = if is_playing && enabled_now {
-                        STEP_PLAYING
+                        theme.step_playing()
                     } else if enabled_now {
                         let v = self.tracks[track_idx].steps[step_idx].velocity;
                         Color32::from_rgb(
-                            (STEP_ENABLED.r() as f32 * v) as u8,
-                            (STEP_ENABLED.g() as f32 * v) as u8,
-                            (STEP_ENABLED.b() as f32 * v) as u8,
+                            (step_enabled_c.r() as f32 * v) as u8,
+                            (step_enabled_c.g() as f32 * v) as u8,
+                            (step_enabled_c.b() as f32 * v) as u8,
                         )
                     } else if is_playing {
                         Color32::from_rgb(60, 60, 30)
                     } else if response.hovered() {
-                        STEP_HOVER
+                        theme.step_hover()
                     } else {
-                        STEP_DISABLED
+                        theme.step_disabled()
                     };
 
                     painter.rect_filled(rect, 3.0, bg);

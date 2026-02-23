@@ -1,9 +1,12 @@
 use eframe::egui;
-use eframe::egui::{pos2, vec2, Color32, Pos2, Rect, Stroke};
+use eframe::egui::{pos2, vec2, Pos2, Rect, Stroke};
+use serde::{Deserialize, Serialize};
+
+use super::theme::GuiTheme;
 
 // GUI-local envelope types (the engine types are pub(crate), so we mirror them here)
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CurveType {
     Linear,
     Exponential,
@@ -19,6 +22,7 @@ pub enum DragTarget {
 /// GUI state for the interactive ADSR envelope editor.
 /// Mirrors the engine's Envelope struct (src/envelope/envelope.rs) but
 /// is owned by the GUI and communicated to audio via ParameterUpdate.
+#[derive(Serialize, Deserialize)]
 pub struct EnvelopeState {
     // ADSR control points: (position 0.0–1.0, volume 0.0–1.0)
     pub attack: (f32, f32),
@@ -35,6 +39,7 @@ pub struct EnvelopeState {
     pub steepness: f32,
 
     // Drag interaction state
+    #[serde(skip)]
     dragging: Option<DragTarget>,
 }
 
@@ -54,21 +59,28 @@ impl Default for EnvelopeState {
     }
 }
 
-// Colors
-const CURVE_COLOR: Color32 = Color32::from_rgb(0, 204, 204);
-const POINT_COLOR: Color32 = Color32::WHITE;
-const POINT_DRAG_COLOR: Color32 = Color32::from_rgb(255, 220, 50);
-const GRID_COLOR: Color32 = Color32::from_rgb(50, 50, 55);
-const BG_COLOR: Color32 = Color32::from_rgb(30, 30, 35);
-const FIXED_POINT_COLOR: Color32 = Color32::from_rgb(120, 120, 130);
-
 const POINT_RADIUS: f32 = 6.0;
 const HIT_RADIUS: f32 = 14.0;
 const CURVE_SAMPLES: usize = 48;
 
 impl EnvelopeState {
+    /// Create a copy suitable for serialization (resets transient drag state).
+    pub fn to_serializable(&self) -> Self {
+        Self {
+            attack: self.attack,
+            decay: self.decay,
+            sustain: self.sustain,
+            attack_curve: self.attack_curve,
+            decay_curve: self.decay_curve,
+            sustain_curve: self.sustain_curve,
+            release_curve: self.release_curve,
+            steepness: self.steepness,
+            dragging: None,
+        }
+    }
+
     /// Render the full envelope panel. Returns a status message if a parameter changed.
-    pub fn render(&mut self, ui: &mut egui::Ui) -> Option<String> {
+    pub fn render(&mut self, ui: &mut egui::Ui, theme: &GuiTheme) -> Option<String> {
         let mut status: Option<String> = None;
 
         // --- Curve type toggles ---
@@ -104,16 +116,16 @@ impl EnvelopeState {
         let painter = ui.painter_at(rect);
 
         // Background
-        painter.rect_filled(rect, 4.0, BG_COLOR);
+        painter.rect_filled(rect, 4.0, theme.envelope_bg_color());
 
         // Grid
-        self.draw_grid(&painter, rect);
+        self.draw_grid(&painter, rect, theme);
 
         // Envelope curve
-        self.draw_curve(&painter, rect);
+        self.draw_curve(&painter, rect, theme);
 
         // Control points
-        self.draw_points(&painter, rect);
+        self.draw_points(&painter, rect, theme);
 
         // Interaction
         if let Some(msg) = self.handle_interaction(&response, rect) {
@@ -199,8 +211,8 @@ impl EnvelopeState {
 
     // --- Drawing ---
 
-    fn draw_grid(&self, painter: &egui::Painter, rect: Rect) {
-        let stroke = Stroke::new(1.0, GRID_COLOR);
+    fn draw_grid(&self, painter: &egui::Painter, rect: Rect, theme: &GuiTheme) {
+        let stroke = Stroke::new(1.0, theme.envelope_grid_color());
         // Horizontal lines at 0.25, 0.5, 0.75
         for frac in [0.25, 0.5, 0.75] {
             let y = rect.max.y - frac * rect.height();
@@ -219,8 +231,8 @@ impl EnvelopeState {
         }
     }
 
-    fn draw_curve(&self, painter: &egui::Painter, rect: Rect) {
-        let stroke = Stroke::new(2.0, CURVE_COLOR);
+    fn draw_curve(&self, painter: &egui::Painter, rect: Rect, theme: &GuiTheme) {
+        let stroke = Stroke::new(2.0, theme.envelope_curve_color());
         let start = (0.0_f32, 0.0_f32);
         let release = (1.0_f32, 0.0_f32);
 
@@ -278,12 +290,12 @@ impl EnvelopeState {
         start.1 + (end.1 - start.1) * exp_t_normalized
     }
 
-    fn draw_points(&self, painter: &egui::Painter, rect: Rect) {
+    fn draw_points(&self, painter: &egui::Painter, rect: Rect, theme: &GuiTheme) {
         // Fixed points (start and release)
         let start_pos = self.to_screen((0.0, 0.0), rect);
         let release_pos = self.to_screen((1.0, 0.0), rect);
-        painter.circle_filled(start_pos, 4.0, FIXED_POINT_COLOR);
-        painter.circle_filled(release_pos, 4.0, FIXED_POINT_COLOR);
+        painter.circle_filled(start_pos, 4.0, theme.envelope_fixed_point_color());
+        painter.circle_filled(release_pos, 4.0, theme.envelope_fixed_point_color());
 
         // Draggable points
         let targets = [
@@ -294,7 +306,11 @@ impl EnvelopeState {
         for (target, point, label) in &targets {
             let screen_pos = self.to_screen(*point, rect);
             let is_dragging = self.dragging == Some(*target);
-            let color = if is_dragging { POINT_DRAG_COLOR } else { POINT_COLOR };
+            let color = if is_dragging {
+                theme.envelope_point_drag_color()
+            } else {
+                theme.envelope_point_color()
+            };
             let radius = if is_dragging { POINT_RADIUS + 2.0 } else { POINT_RADIUS };
             painter.circle_filled(screen_pos, radius, color);
             painter.text(
