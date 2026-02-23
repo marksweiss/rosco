@@ -1,4 +1,4 @@
-# Rosco GUI Implementation Plan: Professional Music Synthesizer Interface
+ # Rosco GUI Implementation Plan: Professional Music Synthesizer Interface
 
 ## Executive Summary
 

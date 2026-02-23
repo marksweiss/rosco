@@ -5,18 +5,79 @@ use std::sync::Arc;
 use atomic_float::AtomicF32;
 use std::sync::atomic::Ordering;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FilterKind {
+    LowPass,
+    HighPass,
+    BandPass,
+    Notch,
+}
+
 #[derive(Debug, Clone)]
 pub enum ParameterUpdate {
+    // Oscillator
     OscillatorFrequency(f32),
     OscillatorVolume(f32),
     OscillatorWaveform(audio_gen::Waveform),
+
+    // Filter
+    FilterType(FilterKind),
     FilterCutoff(f32),
     FilterResonance(f32),
+    FilterMix(f32),
+
+    // Envelope (legacy simple variants)
     EnvelopeAttack(f32),
     EnvelopeDecay(f32),
     EnvelopeSustain(f32),
     EnvelopeRelease(f32),
+
+    // Delay
+    DelayMix(f32),
+    DelayDecay(f32),
+    DelayIntervalMs(f32),
+    DelayDurationMs(f32),
+    DelayNumRepeats(usize),
+
+    // Flanger
+    FlangerDelayMs(f32),
+    FlangerDepthMs(f32),
+    FlangerRateHz(f32),
+    FlangerMix(f32),
+    FlangerFeedback(f32),
+
+    // LFO
+    LfoFrequency(f32),
+    LfoAmplitude(f32),
+
+    // Tremolo
+    TremoloModFreq(f32),
+    TremoloModDepth(f32),
+
+    // Vibrato
+    VibratoAvgDelay(f32),
+    VibratoModWidth(f32),
+    VibratoModFreq(f32),
+
+    // Chorus
+    ChorusCount(usize),
+    ChorusDryGain(f32),
+    ChorusVoiceGain { voice: usize, gain: f32 },
+    ChorusVoiceDelay { voice: usize, delay: f32 },
+
+    // Equalizer
+    EqualizerBandGain { band: usize, gain_db: f32 },
+    EqualizerBandFreq { band: usize, freq: f32 },
+
+    // Sequencer
     SequencerStep { track: u8, step: u8, enabled: bool },
+
+    // Track
+    TrackVolume { track: u8, volume: f32 },
+    TrackPan { track: u8, pan: f32 },
+    TrackMute { track: u8, muted: bool },
+
+    // Transport
     TransportPlay,
     TransportStop,
     TempoChange(f32),

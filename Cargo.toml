@@ -17,6 +17,10 @@ path = "src/bin/tui.rs"
 name = "test-tui"
 path = "src/bin/test-tui.rs"
 
+[[bin]]
+name = "rosco-gui"
+path = "src/bin/gui.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -44,3 +48,6 @@ serde_json = "1.0"
 toml = "0.8"
 dirs = "5.0"
 chrono = { version = "0.4", features = ["serde"] }
+
+# GUI dependencies
+eframe = "0.30"

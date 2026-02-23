@@ -14,3 +14,4 @@ pub mod meter;
 pub mod dsl;
 pub mod compositions;
 pub mod tui;
+pub mod gui;
