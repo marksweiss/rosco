@@ -87,6 +87,10 @@ pub enum ParameterUpdate {
     TransportPlay,
     TransportStop,
     TempoChange(f32),
+
+    // Effect chains
+    EffectChainUpdate { chain: u8, effects_json: String },
+    EffectChainDryWet { chain: u8, dry_wet: f32 },
 }
 
 #[derive(Debug, Clone)]

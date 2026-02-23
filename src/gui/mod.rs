@@ -1,5 +1,6 @@
 mod config;
 mod dsl_bridge;
+mod effect_chains;
 mod effects;
 mod envelope;
 mod oscillator;
@@ -15,6 +16,7 @@ use crate::tui::audio_bridge::{AudioBridge, AudioFeedback, ParameterUpdate};
 use crate::tui::app::SynthParameters;
 
 use config::{GuiConfig, SessionState};
+use effect_chains::EffectChainsState;
 use effects::EffectsRackState;
 use envelope::EnvelopeState;
 use oscillator::OscillatorChainsState;
@@ -30,6 +32,7 @@ pub struct RoscoGuiApp {
     oscillator_chains: OscillatorChainsState,
     envelope: EnvelopeState,
     effects: EffectsRackState,
+    effect_chains: EffectChainsState,
     sequencer: SequencerState,
     transport: TransportState,
     theme: GuiTheme,
@@ -57,6 +60,7 @@ impl RoscoGuiApp {
             oscillator_chains: OscillatorChainsState::default(),
             envelope: EnvelopeState::default(),
             effects: EffectsRackState::default(),
+            effect_chains: EffectChainsState::default(),
             sequencer: SequencerState::default(),
             transport: TransportState::default(),
             theme,
@@ -145,10 +149,9 @@ impl RoscoGuiApp {
 
     fn render_effects(&mut self, ui: &mut egui::Ui) {
         ui.columns(2, |cols| {
-            // Left column: effects chain (LFO through Filter)
-            cols[0].heading("Effects Rack");
-            cols[0].add_space(4.0);
-            let changes = self.effects.render_effects(&mut cols[0]);
+            // Left column: effect chains
+            let theme = self.theme.clone();
+            let changes = self.effect_chains.render(&mut cols[0], &theme);
             for change in changes {
                 match self.audio_bridge.send_parameter_update(change.update) {
                     Ok(()) => self.status_message = change.description,
@@ -276,6 +279,7 @@ impl RoscoGuiApp {
             tempo: self.transport.tempo,
             envelope: self.envelope.to_serializable(),
             effects: self.effects.clone(),
+            effect_chains: self.effect_chains.clone(),
             tracks: self.sequencer.tracks.to_vec(),
         };
         session.save();
@@ -439,21 +443,31 @@ impl eframe::App for RoscoGuiApp {
 
             ui.add_space(8.0);
 
-            // Scrollable area for effects rack + sequencer
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                // Effects rack
-                ui.group(|ui| {
-                    ui.set_min_width(ui.available_width());
-                    self.render_effects(ui);
-                });
+            // Effects rack with its own scroll area
+            let half_height = (ui.available_height() - 16.0) / 2.0;
+            ui.group(|ui| {
+                ui.set_min_width(ui.available_width());
+                ui.set_min_height(half_height);
+                ui.set_max_height(half_height);
+                egui::ScrollArea::vertical()
+                    .id_salt("effects_scroll")
+                    .show(ui, |ui| {
+                        self.render_effects(ui);
+                    });
+            });
 
-                ui.add_space(8.0);
+            ui.add_space(8.0);
 
-                // Sequencer
-                ui.group(|ui| {
-                    ui.set_min_width(ui.available_width());
-                    self.render_sequencer(ui);
-                });
+            // Sequencer with its own scroll area
+            ui.group(|ui| {
+                ui.set_min_width(ui.available_width());
+                ui.set_min_height(half_height);
+                ui.set_max_height(half_height);
+                egui::ScrollArea::vertical()
+                    .id_salt("sequencer_scroll")
+                    .show(ui, |ui| {
+                        self.render_sequencer(ui);
+                    });
             });
         });
 

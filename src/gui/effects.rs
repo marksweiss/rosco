@@ -11,7 +11,7 @@ pub struct EffectChange {
 
 // --- Per-effect state structs ---
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LfoState {
     pub enabled: bool,
     pub frequency: f32,
@@ -28,7 +28,7 @@ impl Default for LfoState {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TremoloState {
     pub enabled: bool,
     pub mod_freq: f32,
@@ -45,7 +45,7 @@ impl Default for TremoloState {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VibratoState {
     pub enabled: bool,
     pub avg_delay: f32,
@@ -64,7 +64,7 @@ impl Default for VibratoState {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FlangerState {
     pub enabled: bool,
     pub delay_ms: f32,
@@ -87,7 +87,7 @@ impl Default for FlangerState {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DelayState {
     pub enabled: bool,
     pub mix: f32,
@@ -110,7 +110,7 @@ impl Default for DelayState {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChorusState {
     pub enabled: bool,
     pub chorus_count: usize,
@@ -145,7 +145,7 @@ impl ChorusState {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FilterState {
     pub enabled: bool,
@@ -364,31 +364,9 @@ impl EffectsRackState {
     fn render_lfo(&mut self, ui: &mut egui::Ui, changes: &mut Vec<EffectChange>) {
         ui.checkbox(&mut self.lfo.enabled, "Enabled");
         ui.add_space(4.0);
-
         ui.scope(|ui| {
             if !self.lfo.enabled { ui.disable(); }
-
-            let before_freq = self.lfo.frequency;
-            ui.add(
-                egui::Slider::new(&mut self.lfo.frequency, 0.01..=22050.0)
-                    .logarithmic(true)
-                    .text("Freq (Hz)"),
-            );
-            if (self.lfo.frequency - before_freq).abs() > 0.001 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::LfoFrequency(self.lfo.frequency),
-                    description: format!("LFO frequency → {:.1} Hz", self.lfo.frequency),
-                });
-            }
-
-            let before_amp = self.lfo.amplitude;
-            ui.add(egui::Slider::new(&mut self.lfo.amplitude, 0.0..=1.0).text("Amplitude"));
-            if (self.lfo.amplitude - before_amp).abs() > 0.001 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::LfoAmplitude(self.lfo.amplitude),
-                    description: format!("LFO amplitude → {:.2}", self.lfo.amplitude),
-                });
-            }
+            changes.extend(render_lfo_params(&mut self.lfo, ui));
         });
     }
 
@@ -397,27 +375,9 @@ impl EffectsRackState {
     fn render_tremolo(&mut self, ui: &mut egui::Ui, changes: &mut Vec<EffectChange>) {
         ui.checkbox(&mut self.tremolo.enabled, "Enabled");
         ui.add_space(4.0);
-
         ui.scope(|ui| {
             if !self.tremolo.enabled { ui.disable(); }
-
-            let before = self.tremolo.mod_freq;
-            ui.add(egui::Slider::new(&mut self.tremolo.mod_freq, 0.1..=20.0).text("Mod Freq (Hz)"));
-            if (self.tremolo.mod_freq - before).abs() > 0.01 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::TremoloModFreq(self.tremolo.mod_freq),
-                    description: format!("Tremolo mod freq → {:.1} Hz", self.tremolo.mod_freq),
-                });
-            }
-
-            let before = self.tremolo.mod_depth;
-            ui.add(egui::Slider::new(&mut self.tremolo.mod_depth, 0.0..=1.0).text("Mod Depth"));
-            if (self.tremolo.mod_depth - before).abs() > 0.001 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::TremoloModDepth(self.tremolo.mod_depth),
-                    description: format!("Tremolo mod depth → {:.2}", self.tremolo.mod_depth),
-                });
-            }
+            changes.extend(render_tremolo_params(&mut self.tremolo, ui));
         });
     }
 
@@ -426,44 +386,9 @@ impl EffectsRackState {
     fn render_vibrato(&mut self, ui: &mut egui::Ui, changes: &mut Vec<EffectChange>) {
         ui.checkbox(&mut self.vibrato.enabled, "Enabled");
         ui.add_space(4.0);
-
         ui.scope(|ui| {
             if !self.vibrato.enabled { ui.disable(); }
-
-            let before = self.vibrato.avg_delay;
-            ui.add(
-                egui::Slider::new(&mut self.vibrato.avg_delay, 0.001..=0.020)
-                    .text("Avg Delay (s)")
-                    .custom_formatter(|v, _| format!("{:.1} ms", v * 1000.0)),
-            );
-            if (self.vibrato.avg_delay - before).abs() > 0.0001 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::VibratoAvgDelay(self.vibrato.avg_delay),
-                    description: format!("Vibrato avg delay → {:.1} ms", self.vibrato.avg_delay * 1000.0),
-                });
-            }
-
-            let before = self.vibrato.mod_width;
-            ui.add(
-                egui::Slider::new(&mut self.vibrato.mod_width, 0.001..=0.010)
-                    .text("Mod Width (s)")
-                    .custom_formatter(|v, _| format!("{:.1} ms", v * 1000.0)),
-            );
-            if (self.vibrato.mod_width - before).abs() > 0.0001 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::VibratoModWidth(self.vibrato.mod_width),
-                    description: format!("Vibrato mod width → {:.1} ms", self.vibrato.mod_width * 1000.0),
-                });
-            }
-
-            let before = self.vibrato.mod_freq;
-            ui.add(egui::Slider::new(&mut self.vibrato.mod_freq, 0.1..=20.0).text("Mod Freq (Hz)"));
-            if (self.vibrato.mod_freq - before).abs() > 0.01 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::VibratoModFreq(self.vibrato.mod_freq),
-                    description: format!("Vibrato mod freq → {:.1} Hz", self.vibrato.mod_freq),
-                });
-            }
+            changes.extend(render_vibrato_params(&mut self.vibrato, ui));
         });
     }
 
@@ -472,54 +397,9 @@ impl EffectsRackState {
     fn render_flanger(&mut self, ui: &mut egui::Ui, changes: &mut Vec<EffectChange>) {
         ui.checkbox(&mut self.flanger.enabled, "Enabled");
         ui.add_space(4.0);
-
         ui.scope(|ui| {
             if !self.flanger.enabled { ui.disable(); }
-
-            let before = self.flanger.delay_ms;
-            ui.add(egui::Slider::new(&mut self.flanger.delay_ms, 1.0..=10.0).text("Delay (ms)"));
-            if (self.flanger.delay_ms - before).abs() > 0.01 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::FlangerDelayMs(self.flanger.delay_ms),
-                    description: format!("Flanger delay → {:.1} ms", self.flanger.delay_ms),
-                });
-            }
-
-            let before = self.flanger.depth_ms;
-            ui.add(egui::Slider::new(&mut self.flanger.depth_ms, 0.1..=10.0).text("Depth (ms)"));
-            if (self.flanger.depth_ms - before).abs() > 0.01 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::FlangerDepthMs(self.flanger.depth_ms),
-                    description: format!("Flanger depth → {:.1} ms", self.flanger.depth_ms),
-                });
-            }
-
-            let before = self.flanger.rate_hz;
-            ui.add(egui::Slider::new(&mut self.flanger.rate_hz, 0.01..=10.0).text("Rate (Hz)"));
-            if (self.flanger.rate_hz - before).abs() > 0.001 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::FlangerRateHz(self.flanger.rate_hz),
-                    description: format!("Flanger rate → {:.2} Hz", self.flanger.rate_hz),
-                });
-            }
-
-            let before = self.flanger.mix;
-            ui.add(egui::Slider::new(&mut self.flanger.mix, 0.0..=1.0).text("Mix"));
-            if (self.flanger.mix - before).abs() > 0.001 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::FlangerMix(self.flanger.mix),
-                    description: format!("Flanger mix → {:.2}", self.flanger.mix),
-                });
-            }
-
-            let before = self.flanger.feedback;
-            ui.add(egui::Slider::new(&mut self.flanger.feedback, 0.0..=0.99).text("Feedback"));
-            if (self.flanger.feedback - before).abs() > 0.001 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::FlangerFeedback(self.flanger.feedback),
-                    description: format!("Flanger feedback → {:.2}", self.flanger.feedback),
-                });
-            }
+            changes.extend(render_flanger_params(&mut self.flanger, ui));
         });
     }
 
@@ -528,60 +408,9 @@ impl EffectsRackState {
     fn render_delay(&mut self, ui: &mut egui::Ui, changes: &mut Vec<EffectChange>) {
         ui.checkbox(&mut self.delay.enabled, "Enabled");
         ui.add_space(4.0);
-
         ui.scope(|ui| {
             if !self.delay.enabled { ui.disable(); }
-
-            let before = self.delay.mix;
-            ui.add(egui::Slider::new(&mut self.delay.mix, 0.0..=1.0).text("Mix"));
-            if (self.delay.mix - before).abs() > 0.001 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::DelayMix(self.delay.mix),
-                    description: format!("Delay mix → {:.2}", self.delay.mix),
-                });
-            }
-
-            let before = self.delay.decay;
-            ui.add(egui::Slider::new(&mut self.delay.decay, 0.0..=1.0).text("Decay"));
-            if (self.delay.decay - before).abs() > 0.001 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::DelayDecay(self.delay.decay),
-                    description: format!("Delay decay → {:.2}", self.delay.decay),
-                });
-            }
-
-            let before = self.delay.interval_ms;
-            ui.add(egui::Slider::new(&mut self.delay.interval_ms, 1.0..=1000.0).text("Interval (ms)"));
-            if (self.delay.interval_ms - before).abs() > 0.1 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::DelayIntervalMs(self.delay.interval_ms),
-                    description: format!("Delay interval → {:.1} ms", self.delay.interval_ms),
-                });
-            }
-
-            let before = self.delay.duration_ms;
-            ui.add(egui::Slider::new(&mut self.delay.duration_ms, 1.0..=500.0).text("Duration (ms)"));
-            if (self.delay.duration_ms - before).abs() > 0.1 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::DelayDurationMs(self.delay.duration_ms),
-                    description: format!("Delay duration → {:.1} ms", self.delay.duration_ms),
-                });
-            }
-
-            let before = self.delay.num_repeats;
-            let mut repeats_f = self.delay.num_repeats as f32;
-            ui.add(
-                egui::Slider::new(&mut repeats_f, 1.0..=16.0)
-                    .step_by(1.0)
-                    .text("Repeats"),
-            );
-            self.delay.num_repeats = repeats_f as usize;
-            if self.delay.num_repeats != before {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::DelayNumRepeats(self.delay.num_repeats),
-                    description: format!("Delay repeats → {}", self.delay.num_repeats),
-                });
-            }
+            changes.extend(render_delay_params(&mut self.delay, ui));
         });
     }
 
@@ -590,82 +419,9 @@ impl EffectsRackState {
     fn render_chorus(&mut self, ui: &mut egui::Ui, changes: &mut Vec<EffectChange>) {
         ui.checkbox(&mut self.chorus.enabled, "Enabled");
         ui.add_space(4.0);
-
         ui.scope(|ui| {
             if !self.chorus.enabled { ui.disable(); }
-
-            // Voice count
-            let before_count = self.chorus.chorus_count;
-            let mut count_f = self.chorus.chorus_count as f32;
-            ui.add(
-                egui::Slider::new(&mut count_f, 1.0..=6.0)
-                    .step_by(1.0)
-                    .text("Voices"),
-            );
-            let new_count = count_f as usize;
-            if new_count != before_count {
-                self.chorus.resize_voices(new_count);
-                changes.push(EffectChange {
-                    update: ParameterUpdate::ChorusCount(new_count),
-                    description: format!("Chorus voices → {}", new_count),
-                });
-            }
-
-            // Dry gain
-            let before = self.chorus.dry_gain;
-            ui.add(egui::Slider::new(&mut self.chorus.dry_gain, 0.0..=1.0).text("Dry Gain"));
-            if (self.chorus.dry_gain - before).abs() > 0.001 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::ChorusDryGain(self.chorus.dry_gain),
-                    description: format!("Chorus dry gain → {:.2}", self.chorus.dry_gain),
-                });
-            }
-
-            // Per-voice controls
-            for v in 0..self.chorus.chorus_count {
-                ui.horizontal(|ui| {
-                    ui.label(format!("V{}:", v + 1));
-
-                    let before_gain = self.chorus.voice_gains[v];
-                    ui.add(
-                        egui::Slider::new(&mut self.chorus.voice_gains[v], 0.0..=1.0)
-                            .text("Gain"),
-                    );
-                    if (self.chorus.voice_gains[v] - before_gain).abs() > 0.001 {
-                        changes.push(EffectChange {
-                            update: ParameterUpdate::ChorusVoiceGain {
-                                voice: v,
-                                gain: self.chorus.voice_gains[v],
-                            },
-                            description: format!(
-                                "Chorus voice {} gain → {:.2}",
-                                v + 1,
-                                self.chorus.voice_gains[v]
-                            ),
-                        });
-                    }
-
-                    let before_delay = self.chorus.voice_delays[v];
-                    ui.add(
-                        egui::Slider::new(&mut self.chorus.voice_delays[v], 0.001..=0.100)
-                            .text("Delay (s)")
-                            .custom_formatter(|val, _| format!("{:.1} ms", val * 1000.0)),
-                    );
-                    if (self.chorus.voice_delays[v] - before_delay).abs() > 0.0001 {
-                        changes.push(EffectChange {
-                            update: ParameterUpdate::ChorusVoiceDelay {
-                                voice: v,
-                                delay: self.chorus.voice_delays[v],
-                            },
-                            description: format!(
-                                "Chorus voice {} delay → {:.1} ms",
-                                v + 1,
-                                self.chorus.voice_delays[v] * 1000.0
-                            ),
-                        });
-                    }
-                });
-            }
+            changes.extend(render_chorus_params(&mut self.chorus, ui));
         });
     }
 
@@ -674,80 +430,368 @@ impl EffectsRackState {
     fn render_filter(&mut self, ui: &mut egui::Ui, changes: &mut Vec<EffectChange>) {
         ui.checkbox(&mut self.filter.enabled, "Enabled");
         ui.add_space(4.0);
-
         ui.scope(|ui| {
             if !self.filter.enabled { ui.disable(); }
+            changes.extend(render_filter_params(&mut self.filter, ui));
+        });
+    }
 
-            // Filter type selector
-            ui.horizontal(|ui| {
-                ui.label("Type:");
-                let kinds = [
-                    (FilterKind::LowPass, "LowPass"),
-                    (FilterKind::HighPass, "HighPass"),
-                    (FilterKind::BandPass, "BandPass"),
-                    (FilterKind::Notch, "Notch"),
-                ];
-                for (kind, label) in &kinds {
-                    let selected = self.filter.kind == *kind;
-                    if ui.selectable_label(selected, *label).clicked() && !selected {
-                        self.filter.kind = *kind;
-                        changes.push(EffectChange {
-                            update: ParameterUpdate::FilterType(*kind),
-                            description: format!("Filter type → {}", label),
-                        });
-                    }
-                }
-            });
+}
 
-            let is_band = matches!(self.filter.kind, FilterKind::BandPass | FilterKind::Notch);
-            let freq_label = if is_band { "Center Freq (Hz)" } else { "Cutoff (Hz)" };
+// --- Standalone parameter render functions (reusable from effect chains) ---
 
-            let before = self.filter.cutoff;
+pub fn render_lfo_params(state: &mut LfoState, ui: &mut egui::Ui) -> Vec<EffectChange> {
+    let mut changes = Vec::new();
+
+    let before_freq = state.frequency;
+    ui.add(
+        egui::Slider::new(&mut state.frequency, 0.01..=22050.0)
+            .logarithmic(true)
+            .text("Freq (Hz)"),
+    );
+    if (state.frequency - before_freq).abs() > 0.001 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::LfoFrequency(state.frequency),
+            description: format!("LFO frequency → {:.1} Hz", state.frequency),
+        });
+    }
+
+    let before_amp = state.amplitude;
+    ui.add(egui::Slider::new(&mut state.amplitude, 0.0..=1.0).text("Amplitude"));
+    if (state.amplitude - before_amp).abs() > 0.001 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::LfoAmplitude(state.amplitude),
+            description: format!("LFO amplitude → {:.2}", state.amplitude),
+        });
+    }
+
+    changes
+}
+
+pub fn render_tremolo_params(state: &mut TremoloState, ui: &mut egui::Ui) -> Vec<EffectChange> {
+    let mut changes = Vec::new();
+
+    let before = state.mod_freq;
+    ui.add(egui::Slider::new(&mut state.mod_freq, 0.1..=20.0).text("Mod Freq (Hz)"));
+    if (state.mod_freq - before).abs() > 0.01 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::TremoloModFreq(state.mod_freq),
+            description: format!("Tremolo mod freq → {:.1} Hz", state.mod_freq),
+        });
+    }
+
+    let before = state.mod_depth;
+    ui.add(egui::Slider::new(&mut state.mod_depth, 0.0..=1.0).text("Mod Depth"));
+    if (state.mod_depth - before).abs() > 0.001 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::TremoloModDepth(state.mod_depth),
+            description: format!("Tremolo mod depth → {:.2}", state.mod_depth),
+        });
+    }
+
+    changes
+}
+
+pub fn render_vibrato_params(state: &mut VibratoState, ui: &mut egui::Ui) -> Vec<EffectChange> {
+    let mut changes = Vec::new();
+
+    let before = state.avg_delay;
+    ui.add(
+        egui::Slider::new(&mut state.avg_delay, 0.001..=0.020)
+            .text("Avg Delay (s)")
+            .custom_formatter(|v, _| format!("{:.1} ms", v * 1000.0)),
+    );
+    if (state.avg_delay - before).abs() > 0.0001 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::VibratoAvgDelay(state.avg_delay),
+            description: format!("Vibrato avg delay → {:.1} ms", state.avg_delay * 1000.0),
+        });
+    }
+
+    let before = state.mod_width;
+    ui.add(
+        egui::Slider::new(&mut state.mod_width, 0.001..=0.010)
+            .text("Mod Width (s)")
+            .custom_formatter(|v, _| format!("{:.1} ms", v * 1000.0)),
+    );
+    if (state.mod_width - before).abs() > 0.0001 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::VibratoModWidth(state.mod_width),
+            description: format!("Vibrato mod width → {:.1} ms", state.mod_width * 1000.0),
+        });
+    }
+
+    let before = state.mod_freq;
+    ui.add(egui::Slider::new(&mut state.mod_freq, 0.1..=20.0).text("Mod Freq (Hz)"));
+    if (state.mod_freq - before).abs() > 0.01 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::VibratoModFreq(state.mod_freq),
+            description: format!("Vibrato mod freq → {:.1} Hz", state.mod_freq),
+        });
+    }
+
+    changes
+}
+
+pub fn render_flanger_params(state: &mut FlangerState, ui: &mut egui::Ui) -> Vec<EffectChange> {
+    let mut changes = Vec::new();
+
+    let before = state.delay_ms;
+    ui.add(egui::Slider::new(&mut state.delay_ms, 1.0..=10.0).text("Delay (ms)"));
+    if (state.delay_ms - before).abs() > 0.01 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::FlangerDelayMs(state.delay_ms),
+            description: format!("Flanger delay → {:.1} ms", state.delay_ms),
+        });
+    }
+
+    let before = state.depth_ms;
+    ui.add(egui::Slider::new(&mut state.depth_ms, 0.1..=10.0).text("Depth (ms)"));
+    if (state.depth_ms - before).abs() > 0.01 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::FlangerDepthMs(state.depth_ms),
+            description: format!("Flanger depth → {:.1} ms", state.depth_ms),
+        });
+    }
+
+    let before = state.rate_hz;
+    ui.add(egui::Slider::new(&mut state.rate_hz, 0.01..=10.0).text("Rate (Hz)"));
+    if (state.rate_hz - before).abs() > 0.001 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::FlangerRateHz(state.rate_hz),
+            description: format!("Flanger rate → {:.2} Hz", state.rate_hz),
+        });
+    }
+
+    let before = state.mix;
+    ui.add(egui::Slider::new(&mut state.mix, 0.0..=1.0).text("Mix"));
+    if (state.mix - before).abs() > 0.001 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::FlangerMix(state.mix),
+            description: format!("Flanger mix → {:.2}", state.mix),
+        });
+    }
+
+    let before = state.feedback;
+    ui.add(egui::Slider::new(&mut state.feedback, 0.0..=0.99).text("Feedback"));
+    if (state.feedback - before).abs() > 0.001 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::FlangerFeedback(state.feedback),
+            description: format!("Flanger feedback → {:.2}", state.feedback),
+        });
+    }
+
+    changes
+}
+
+pub fn render_delay_params(state: &mut DelayState, ui: &mut egui::Ui) -> Vec<EffectChange> {
+    let mut changes = Vec::new();
+
+    let before = state.mix;
+    ui.add(egui::Slider::new(&mut state.mix, 0.0..=1.0).text("Mix"));
+    if (state.mix - before).abs() > 0.001 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::DelayMix(state.mix),
+            description: format!("Delay mix → {:.2}", state.mix),
+        });
+    }
+
+    let before = state.decay;
+    ui.add(egui::Slider::new(&mut state.decay, 0.0..=1.0).text("Decay"));
+    if (state.decay - before).abs() > 0.001 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::DelayDecay(state.decay),
+            description: format!("Delay decay → {:.2}", state.decay),
+        });
+    }
+
+    let before = state.interval_ms;
+    ui.add(egui::Slider::new(&mut state.interval_ms, 1.0..=1000.0).text("Interval (ms)"));
+    if (state.interval_ms - before).abs() > 0.1 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::DelayIntervalMs(state.interval_ms),
+            description: format!("Delay interval → {:.1} ms", state.interval_ms),
+        });
+    }
+
+    let before = state.duration_ms;
+    ui.add(egui::Slider::new(&mut state.duration_ms, 1.0..=500.0).text("Duration (ms)"));
+    if (state.duration_ms - before).abs() > 0.1 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::DelayDurationMs(state.duration_ms),
+            description: format!("Delay duration → {:.1} ms", state.duration_ms),
+        });
+    }
+
+    let before = state.num_repeats;
+    let mut repeats_f = state.num_repeats as f32;
+    ui.add(
+        egui::Slider::new(&mut repeats_f, 1.0..=16.0)
+            .step_by(1.0)
+            .text("Repeats"),
+    );
+    state.num_repeats = repeats_f as usize;
+    if state.num_repeats != before {
+        changes.push(EffectChange {
+            update: ParameterUpdate::DelayNumRepeats(state.num_repeats),
+            description: format!("Delay repeats → {}", state.num_repeats),
+        });
+    }
+
+    changes
+}
+
+pub fn render_chorus_params(state: &mut ChorusState, ui: &mut egui::Ui) -> Vec<EffectChange> {
+    let mut changes = Vec::new();
+
+    // Voice count
+    let before_count = state.chorus_count;
+    let mut count_f = state.chorus_count as f32;
+    ui.add(
+        egui::Slider::new(&mut count_f, 1.0..=6.0)
+            .step_by(1.0)
+            .text("Voices"),
+    );
+    let new_count = count_f as usize;
+    if new_count != before_count {
+        state.resize_voices(new_count);
+        changes.push(EffectChange {
+            update: ParameterUpdate::ChorusCount(new_count),
+            description: format!("Chorus voices → {}", new_count),
+        });
+    }
+
+    // Dry gain
+    let before = state.dry_gain;
+    ui.add(egui::Slider::new(&mut state.dry_gain, 0.0..=1.0).text("Dry Gain"));
+    if (state.dry_gain - before).abs() > 0.001 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::ChorusDryGain(state.dry_gain),
+            description: format!("Chorus dry gain → {:.2}", state.dry_gain),
+        });
+    }
+
+    // Per-voice controls
+    for v in 0..state.chorus_count {
+        ui.horizontal(|ui| {
+            ui.label(format!("V{}:", v + 1));
+
+            let before_gain = state.voice_gains[v];
             ui.add(
-                egui::Slider::new(&mut self.filter.cutoff, 20.0..=20000.0)
-                    .logarithmic(true)
-                    .text(freq_label),
+                egui::Slider::new(&mut state.voice_gains[v], 0.0..=1.0)
+                    .text("Gain"),
             );
-            if (self.filter.cutoff - before).abs() > 0.1 {
+            if (state.voice_gains[v] - before_gain).abs() > 0.001 {
                 changes.push(EffectChange {
-                    update: ParameterUpdate::FilterCutoff(self.filter.cutoff),
-                    description: format!("Filter {} → {:.1} Hz", freq_label.to_lowercase(), self.filter.cutoff),
+                    update: ParameterUpdate::ChorusVoiceGain {
+                        voice: v,
+                        gain: state.voice_gains[v],
+                    },
+                    description: format!(
+                        "Chorus voice {} gain → {:.2}",
+                        v + 1,
+                        state.voice_gains[v]
+                    ),
                 });
             }
 
-            if is_band {
-                let before = self.filter.bandwidth;
-                ui.add(
-                    egui::Slider::new(&mut self.filter.bandwidth, 10.0..=10000.0)
-                        .logarithmic(true)
-                        .text("Bandwidth (Hz)"),
-                );
-                if (self.filter.bandwidth - before).abs() > 0.1 {
-                    changes.push(EffectChange {
-                        update: ParameterUpdate::FilterBandwidth(self.filter.bandwidth),
-                        description: format!("Filter bandwidth → {:.1} Hz", self.filter.bandwidth),
-                    });
-                }
-            }
-
-            let before = self.filter.resonance;
-            ui.add(egui::Slider::new(&mut self.filter.resonance, 0.0..=20.0).text("Resonance (Q)"));
-            if (self.filter.resonance - before).abs() > 0.01 {
+            let before_delay = state.voice_delays[v];
+            ui.add(
+                egui::Slider::new(&mut state.voice_delays[v], 0.001..=0.100)
+                    .text("Delay (s)")
+                    .custom_formatter(|val, _| format!("{:.1} ms", val * 1000.0)),
+            );
+            if (state.voice_delays[v] - before_delay).abs() > 0.0001 {
                 changes.push(EffectChange {
-                    update: ParameterUpdate::FilterResonance(self.filter.resonance),
-                    description: format!("Filter resonance → {:.2}", self.filter.resonance),
-                });
-            }
-
-            let before = self.filter.mix;
-            ui.add(egui::Slider::new(&mut self.filter.mix, 0.0..=1.0).text("Mix"));
-            if (self.filter.mix - before).abs() > 0.001 {
-                changes.push(EffectChange {
-                    update: ParameterUpdate::FilterMix(self.filter.mix),
-                    description: format!("Filter mix → {:.2}", self.filter.mix),
+                    update: ParameterUpdate::ChorusVoiceDelay {
+                        voice: v,
+                        delay: state.voice_delays[v],
+                    },
+                    description: format!(
+                        "Chorus voice {} delay → {:.1} ms",
+                        v + 1,
+                        state.voice_delays[v] * 1000.0
+                    ),
                 });
             }
         });
     }
 
+    changes
+}
+
+pub fn render_filter_params(state: &mut FilterState, ui: &mut egui::Ui) -> Vec<EffectChange> {
+    let mut changes = Vec::new();
+
+    // Filter type selector
+    ui.horizontal(|ui| {
+        ui.label("Type:");
+        let kinds = [
+            (FilterKind::LowPass, "LowPass"),
+            (FilterKind::HighPass, "HighPass"),
+            (FilterKind::BandPass, "BandPass"),
+            (FilterKind::Notch, "Notch"),
+        ];
+        for (kind, label) in &kinds {
+            let selected = state.kind == *kind;
+            if ui.selectable_label(selected, *label).clicked() && !selected {
+                state.kind = *kind;
+                changes.push(EffectChange {
+                    update: ParameterUpdate::FilterType(*kind),
+                    description: format!("Filter type → {}", label),
+                });
+            }
+        }
+    });
+
+    let is_band = matches!(state.kind, FilterKind::BandPass | FilterKind::Notch);
+    let freq_label = if is_band { "Center Freq (Hz)" } else { "Cutoff (Hz)" };
+
+    let before = state.cutoff;
+    ui.add(
+        egui::Slider::new(&mut state.cutoff, 20.0..=20000.0)
+            .logarithmic(true)
+            .text(freq_label),
+    );
+    if (state.cutoff - before).abs() > 0.1 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::FilterCutoff(state.cutoff),
+            description: format!("Filter {} → {:.1} Hz", freq_label.to_lowercase(), state.cutoff),
+        });
+    }
+
+    if is_band {
+        let before = state.bandwidth;
+        ui.add(
+            egui::Slider::new(&mut state.bandwidth, 10.0..=10000.0)
+                .logarithmic(true)
+                .text("Bandwidth (Hz)"),
+        );
+        if (state.bandwidth - before).abs() > 0.1 {
+            changes.push(EffectChange {
+                update: ParameterUpdate::FilterBandwidth(state.bandwidth),
+                description: format!("Filter bandwidth → {:.1} Hz", state.bandwidth),
+            });
+        }
+    }
+
+    let before = state.resonance;
+    ui.add(egui::Slider::new(&mut state.resonance, 0.0..=20.0).text("Resonance (Q)"));
+    if (state.resonance - before).abs() > 0.01 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::FilterResonance(state.resonance),
+            description: format!("Filter resonance → {:.2}", state.resonance),
+        });
+    }
+
+    let before = state.mix;
+    ui.add(egui::Slider::new(&mut state.mix, 0.0..=1.0).text("Mix"));
+    if (state.mix - before).abs() > 0.001 {
+        changes.push(EffectChange {
+            update: ParameterUpdate::FilterMix(state.mix),
+            description: format!("Filter mix → {:.2}", state.mix),
+        });
+    }
+
+    changes
 }
