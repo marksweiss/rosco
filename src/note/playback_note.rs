@@ -1,5 +1,9 @@
 use derive_builder::Builder;
 use crate::effect::delay::Delay;
+use crate::effect::chorus::Chorus;
+use crate::effect::equalizer::Equalizer;
+use crate::effect::tremolo::Tremolo;
+use crate::effect::vibrato::Vibrato;
 use crate::envelope::envelope::Envelope;
 use crate::effect::flanger::Flanger;
 use crate::effect::lfo::LFO;
@@ -52,6 +56,18 @@ pub struct PlaybackNote {
 
     #[builder(default = "Vec::new()")]
     pub(crate) delays: Vec<Delay>,
+
+    #[builder(default = "Vec::new()")]
+    pub(crate) tremolos: Vec<Tremolo>,
+
+    #[builder(default = "Vec::new()")]
+    pub(crate) vibratos: Vec<Vibrato>,
+
+    #[builder(default = "Vec::new()")]
+    pub(crate) choruses: Vec<Chorus>,
+
+    #[builder(default = "Vec::new()")]
+    pub(crate) equalizers: Vec<Equalizer>,
 
     #[builder(default = "Vec::new()")]
     pub(crate) filters: Vec<LowPassFilter>,
@@ -181,6 +197,20 @@ impl PlaybackNote {
             output_sample = lfo.apply_effect(output_sample, sample_count);
         }
 
+        for tremolo in self.tremolos.iter_mut() {
+            output_sample = tremolo.apply_effect(output_sample, sample_position);
+        }
+        for tremolo in self.track_effects.tremolos.iter_mut() {
+            output_sample = tremolo.apply_effect(output_sample, sample_position);
+        }
+
+        for vibrato in self.vibratos.iter_mut() {
+            output_sample = vibrato.apply_effect(output_sample, sample_position);
+        }
+        for vibrato in self.track_effects.vibratos.iter_mut() {
+            output_sample = vibrato.apply_effect(output_sample, sample_position);
+        }
+
         for flanger in self.flangers.iter_mut() {
             output_sample = flanger.apply_effect(output_sample, sample_position);
         }
@@ -197,9 +227,23 @@ impl PlaybackNote {
             output_sample = delay.apply_effect(output_sample, sample_position);
         }
 
+        for chorus in self.choruses.iter_mut() {
+            output_sample = chorus.apply_effect(output_sample, sample_position);
+        }
+        for chorus in self.track_effects.choruses.iter_mut() {
+            output_sample = chorus.apply_effect(output_sample, sample_position);
+        }
+
         // Apply filters after envelopes, LFOs, flangers, and delays
         for filter in self.filters.iter_mut() {
             output_sample = filter.apply_effect(output_sample, sample_position);
+        }
+
+        for equalizer in self.equalizers.iter_mut() {
+            output_sample = equalizer.apply_effect(output_sample, sample_position);
+        }
+        for equalizer in self.track_effects.equalizers.iter_mut() {
+            output_sample = equalizer.apply_effect(output_sample, sample_position);
         }
 
         output_sample
@@ -263,7 +307,7 @@ impl BuilderWrapper<PlaybackNote> for PlaybackNoteBuilder {
 #[cfg(test)]
 mod test_playback_note {
     use crate::envelope::envelope;
-    use crate::effect::{delay, flanger};
+    use crate::effect::{delay, flanger, tremolo, vibrato, chorus, equalizer};
     use crate::effect::lfo;
     use crate::note::constants;
     use crate::note::note;
@@ -280,6 +324,10 @@ mod test_playback_note {
         assert_eq!(playback_note.lfos.is_empty(), true);
         assert_eq!(playback_note.flangers.is_empty(), true);
         assert_eq!(playback_note.delays.is_empty(), true);
+        assert_eq!(playback_note.tremolos.is_empty(), true);
+        assert_eq!(playback_note.vibratos.is_empty(), true);
+        assert_eq!(playback_note.choruses.is_empty(), true);
+        assert_eq!(playback_note.equalizers.is_empty(), true);
     }
 
     #[test]
@@ -312,6 +360,38 @@ mod test_playback_note {
             .delays(vec![delay::default_delay()])
             .build().unwrap();
         assert_eq!(playback_note.delays, vec![delay::default_delay()]);
+    }
+
+    #[test]
+    fn test_playback_note_with_tremolos() {
+        let playback_note = PlaybackNoteBuilder::default()
+            .tremolos(vec![tremolo::default_tremolo()])
+            .build().unwrap();
+        assert_eq!(playback_note.tremolos, vec![tremolo::default_tremolo()]);
+    }
+
+    #[test]
+    fn test_playback_note_with_vibratos() {
+        let playback_note = PlaybackNoteBuilder::default()
+            .vibratos(vec![vibrato::default_vibrato()])
+            .build().unwrap();
+        assert_eq!(playback_note.vibratos, vec![vibrato::default_vibrato()]);
+    }
+
+    #[test]
+    fn test_playback_note_with_choruses() {
+        let playback_note = PlaybackNoteBuilder::default()
+            .choruses(vec![chorus::default_chorus()])
+            .build().unwrap();
+        assert_eq!(playback_note.choruses, vec![chorus::default_chorus()]);
+    }
+
+    #[test]
+    fn test_playback_note_with_equalizers() {
+        let playback_note = PlaybackNoteBuilder::default()
+            .equalizers(vec![equalizer::default_equalizer()])
+            .build().unwrap();
+        assert_eq!(playback_note.equalizers, vec![equalizer::default_equalizer()]);
     }
 
     #[test]

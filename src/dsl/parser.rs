@@ -6,6 +6,10 @@ use crate::audio_gen::oscillator::Waveform;
 use crate::effect::delay::DelayBuilder;
 use crate::effect::flanger::{FlangerBuilder};
 use crate::effect::lfo::{LFOBuilder};
+use crate::effect::tremolo::TremoloBuilder;
+use crate::effect::vibrato::VibratoBuilder;
+use crate::effect::chorus::ChorusBuilder;
+use crate::effect::equalizer::EqualizerBuilder;
 use crate::envelope::envelope::{EnvelopeBuilder, EnvelopeCurve};
 use crate::envelope::envelope_pair::EnvelopePair;
 use crate::filter::low_pass_filter::{LowPassFilterBuilder};
@@ -172,11 +176,47 @@ pub(crate) struct FilterDef {
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
+pub(crate) struct TremoloDef {
+    pub(crate) mod_freq: f32,
+    pub(crate) mod_depth: f32,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(crate) struct VibratoDef {
+    pub(crate) avg_delay: f32,
+    pub(crate) mod_width: f32,
+    pub(crate) mod_freq: f32,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(crate) struct ChorusDef {
+    pub(crate) chorus_count: usize,
+    pub(crate) chorus_gains: Vec<f32>,
+    pub(crate) dry_gain: f32,
+    pub(crate) chorus_delays: Vec<f32>,
+    pub(crate) mod_freqs: Vec<f32>,
+    pub(crate) mod_widths: Vec<f32>,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(crate) struct EqualizerDef {
+    pub(crate) gains: Vec<f32>,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub(crate) enum EffectDef {
     Delay(DelayDef),
     Flanger(FlangerDef),
     LFO(LFODef),
     Filter(FilterDef),
+    Tremolo(TremoloDef),
+    Vibrato(VibratoDef),
+    Chorus(ChorusDef),
+    Equalizer(EqualizerDef),
 }
 
 #[derive(Debug, Clone)]
@@ -704,6 +744,14 @@ impl Parser {
             self.parse_lfo_def()
         } else if self.peek() == "filter" {
             self.parse_filter_def()
+        } else if self.peek() == "tremolo" {
+            self.parse_tremolo_def()
+        } else if self.peek() == "vibrato" {
+            self.parse_vibrato_def()
+        } else if self.peek() == "chorus" {
+            self.parse_chorus_def()
+        } else if self.peek() == "equalizer" {
+            self.parse_equalizer_def()
         } else {
             Err(format!("Unknown effect type: {}", self.peek()))
         }
@@ -790,6 +838,95 @@ impl Parser {
             resonance,
             mix,
         }))
+    }
+
+    fn parse_tremolo_def(&mut self) -> Result<EffectDef, String> {
+        self.skip_comment_lines();
+
+        self.expect("tremolo")?;
+        self.expect("mod_freq")?;
+        let mod_freq = self.parse_f32()?;
+        self.expect("mod_depth")?;
+        let mod_depth = self.parse_f32()?;
+
+        Ok(EffectDef::Tremolo(TremoloDef {
+            mod_freq,
+            mod_depth,
+        }))
+    }
+
+    fn parse_vibrato_def(&mut self) -> Result<EffectDef, String> {
+        self.skip_comment_lines();
+
+        self.expect("vibrato")?;
+        self.expect("avg_delay")?;
+        let avg_delay = self.parse_f32()?;
+        self.expect("mod_width")?;
+        let mod_width = self.parse_f32()?;
+        self.expect("mod_freq")?;
+        let mod_freq = self.parse_f32()?;
+
+        Ok(EffectDef::Vibrato(VibratoDef {
+            avg_delay,
+            mod_width,
+            mod_freq,
+        }))
+    }
+
+    fn parse_chorus_def(&mut self) -> Result<EffectDef, String> {
+        self.skip_comment_lines();
+
+        self.expect("chorus")?;
+        self.expect("chorus_count")?;
+        let chorus_count = self.parse_usize()?;
+        self.expect("chorus_gains")?;
+        let chorus_gains = self.parse_f32_list()?;
+        self.expect("dry_gain")?;
+        let dry_gain = self.parse_f32()?;
+        self.expect("chorus_delays")?;
+        let chorus_delays = self.parse_f32_list()?;
+        self.expect("mod_freqs")?;
+        let mod_freqs = self.parse_f32_list()?;
+        self.expect("mod_widths")?;
+        let mod_widths = self.parse_f32_list()?;
+
+        Ok(EffectDef::Chorus(ChorusDef {
+            chorus_count,
+            chorus_gains,
+            dry_gain,
+            chorus_delays,
+            mod_freqs,
+            mod_widths,
+        }))
+    }
+
+    fn parse_equalizer_def(&mut self) -> Result<EffectDef, String> {
+        self.skip_comment_lines();
+
+        self.expect("equalizer")?;
+        self.expect("gains")?;
+        let gains = self.parse_f32_list()?;
+
+        Ok(EffectDef::Equalizer(EqualizerDef {
+            gains,
+        }))
+    }
+
+    fn parse_f32_list(&mut self) -> Result<Vec<f32>, String> {
+        let mut values = Vec::new();
+
+        loop {
+            let value = self.parse_f32()?;
+            values.push(value);
+
+            if self.peek() == "," {
+                self.advance(); // consume comma
+            } else {
+                break;
+            }
+        }
+
+        Ok(values)
     }
 
     fn parse_waveforms(&mut self) -> Result<Vec<WaveformType>, String> {
@@ -919,6 +1056,7 @@ impl Parser {
 
     fn is_effect_start(&self) -> bool {
         self.peek() == "delay" || self.peek() == "flanger" || self.peek() == "lfo" || self.peek() == "filter"
+            || self.peek() == "tremolo" || self.peek() == "vibrato" || self.peek() == "chorus" || self.peek() == "equalizer"
     }
 
     fn is_note_declaration_start(&self) -> bool {
@@ -1021,6 +1159,10 @@ impl Parser {
         let mut delays = Vec::new();
         let mut flangers = Vec::new();
         let mut lfos = Vec::new();
+        let mut tremolos = Vec::new();
+        let mut vibratos = Vec::new();
+        let mut choruses = Vec::new();
+        let mut equalizers = Vec::new();
 
         // Build envelopes
         for env_def in envelope_defs {
@@ -1079,6 +1221,42 @@ impl Parser {
                     // Filters are added to individual notes, not track effects
                     // This is handled in build_playback_note
                 }
+                EffectDef::Tremolo(tremolo_def) => {
+                    let tremolo = TremoloBuilder::default()
+                        .mod_freq(tremolo_def.mod_freq)
+                        .mod_depth(tremolo_def.mod_depth)
+                        .build()
+                        .map_err(|e| format!("Failed to build Tremolo: {:?}", e))?;
+                    tremolos.push(tremolo);
+                }
+                EffectDef::Vibrato(vibrato_def) => {
+                    let vibrato = VibratoBuilder::default()
+                        .avg_delay(vibrato_def.avg_delay)
+                        .mod_width(vibrato_def.mod_width)
+                        .mod_freq(vibrato_def.mod_freq)
+                        .build()
+                        .map_err(|e| format!("Failed to build Vibrato: {:?}", e))?;
+                    vibratos.push(vibrato);
+                }
+                EffectDef::Chorus(chorus_def) => {
+                    let chorus = ChorusBuilder::default()
+                        .chorus_count(chorus_def.chorus_count)
+                        .chorus_gains(chorus_def.chorus_gains.clone())
+                        .dry_gain(chorus_def.dry_gain)
+                        .chorus_delays(chorus_def.chorus_delays.clone())
+                        .mod_freqs(chorus_def.mod_freqs.clone())
+                        .mod_widths(chorus_def.mod_widths.clone())
+                        .build()
+                        .map_err(|e| format!("Failed to build Chorus: {}", e))?;
+                    choruses.push(chorus);
+                }
+                EffectDef::Equalizer(equalizer_def) => {
+                    let equalizer = EqualizerBuilder::default()
+                        .gains(equalizer_def.gains.clone())
+                        .build()
+                        .map_err(|e| format!("Failed to build Equalizer: {}", e))?;
+                    equalizers.push(equalizer);
+                }
             }
         }
 
@@ -1089,6 +1267,10 @@ impl Parser {
                 .delays(delays)
                 .flangers(flangers)
                 .lfos(lfos)
+                .tremolos(tremolos)
+                .vibratos(vibratos)
+                .choruses(choruses)
+                .equalizers(equalizers)
                 .panning(panning_value)
                 .num_channels(2)
                 .build()
@@ -1099,6 +1281,10 @@ impl Parser {
                 .delays(delays)
                 .flangers(flangers)
                 .lfos(lfos)
+                .tremolos(tremolos)
+                .vibratos(vibratos)
+                .choruses(choruses)
+                .equalizers(equalizers)
                 .build()
                 .map_err(|e| format!("Failed to build TrackEffects: {:?}", e))
         }
@@ -1788,5 +1974,122 @@ mod tests {
         assert_eq!(envelope.decay_curve, EnvelopeCurve::Linear);
         assert_eq!(envelope.sustain_curve, EnvelopeCurve::Exponential);
         assert_eq!(envelope.release_curve, EnvelopeCurve::Linear);
+    }
+
+    #[test]
+    fn test_parse_tremolo() {
+        let input = r#"
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+            tremolo mod_freq 5.0 mod_depth 0.5
+            osc:sine:440.0:0.5:0
+        "#;
+
+        let result = parse_dsl(input);
+        if let Err(e) = &result {
+            println!("Parse error: {}", e);
+        }
+        assert!(result.is_ok());
+
+        let track_grid = result.unwrap();
+        let track = &track_grid.tracks[0];
+        assert_eq!(track.effects.tremolos.len(), 1);
+        assert_eq!(track.effects.tremolos[0].mod_freq, 5.0);
+        assert_eq!(track.effects.tremolos[0].mod_depth, 0.5);
+    }
+
+    #[test]
+    fn test_parse_vibrato() {
+        let input = r#"
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+            vibrato avg_delay 0.007 mod_width 0.003 mod_freq 5.0
+            osc:sine:440.0:0.5:0
+        "#;
+
+        let result = parse_dsl(input);
+        if let Err(e) = &result {
+            println!("Parse error: {}", e);
+        }
+        assert!(result.is_ok());
+
+        let track_grid = result.unwrap();
+        let track = &track_grid.tracks[0];
+        assert_eq!(track.effects.vibratos.len(), 1);
+        assert_eq!(track.effects.vibratos[0].avg_delay, 0.007);
+        assert_eq!(track.effects.vibratos[0].mod_width, 0.003);
+        assert_eq!(track.effects.vibratos[0].mod_freq, 5.0);
+    }
+
+    #[test]
+    fn test_parse_chorus() {
+        let input = r#"
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+            chorus chorus_count 3 chorus_gains 0.4,0.4,0.4 dry_gain 0.7 chorus_delays 0.015,0.020,0.030 mod_freqs 0.25,0.33,0.40 mod_widths 0.003,0.004,0.005
+            osc:sine:440.0:0.5:0
+        "#;
+
+        let result = parse_dsl(input);
+        if let Err(e) = &result {
+            println!("Parse error: {}", e);
+        }
+        assert!(result.is_ok());
+
+        let track_grid = result.unwrap();
+        let track = &track_grid.tracks[0];
+        assert_eq!(track.effects.choruses.len(), 1);
+        assert_eq!(track.effects.choruses[0].chorus_count, 3);
+        assert_eq!(track.effects.choruses[0].chorus_gains, vec![0.4, 0.4, 0.4]);
+        assert_eq!(track.effects.choruses[0].dry_gain, 0.7);
+        assert_eq!(track.effects.choruses[0].chorus_delays, vec![0.015, 0.020, 0.030]);
+        assert_eq!(track.effects.choruses[0].mod_freqs, vec![0.25, 0.33, 0.40]);
+        assert_eq!(track.effects.choruses[0].mod_widths, vec![0.003, 0.004, 0.005]);
+    }
+
+    #[test]
+    fn test_parse_equalizer() {
+        let input = r#"
+            FixedTimeNoteSequence dur Quarter tempo 120 num_steps 16
+            equalizer gains 0.0,3.0,-2.0,0.0,0.0,0.0,0.0,0.0
+            osc:sine:440.0:0.5:0
+        "#;
+
+        let result = parse_dsl(input);
+        if let Err(e) = &result {
+            println!("Parse error: {}", e);
+        }
+        assert!(result.is_ok());
+
+        let track_grid = result.unwrap();
+        let track = &track_grid.tracks[0];
+        assert_eq!(track.effects.equalizers.len(), 1);
+        assert_eq!(track.effects.equalizers[0].gains, vec![0.0, 3.0, -2.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_parse_all_new_effects() {
+        let input = r#"
+            FixedTimeNoteSequence dur Half tempo 100 num_steps 32
+            a 0.1,0.9 d 0.4,0.6 s 0.8,0.3 r 1.0,0.0
+            delay mix 0.8 decay 0.6 interval_ms 80.0 duration_ms 40.0 num_repeats 5 num_predelay_samples 15 num_concurrent_delays 3
+            tremolo mod_freq 6.0 mod_depth 0.4
+            vibrato avg_delay 0.005 mod_width 0.002 mod_freq 4.0
+            chorus chorus_count 2 chorus_gains 0.3,0.3 dry_gain 0.8 chorus_delays 0.010,0.020 mod_freqs 0.3,0.4 mod_widths 0.002,0.003
+            equalizer gains 0.0,0.0,3.0,0.0,0.0,0.0,0.0,0.0
+            osc:sine:440.0:0.7:0
+        "#;
+
+        let result = parse_dsl(input);
+        if let Err(e) = &result {
+            println!("Parse error: {}", e);
+        }
+        assert!(result.is_ok());
+
+        let track_grid = result.unwrap();
+        let track = &track_grid.tracks[0];
+        assert_eq!(track.effects.envelopes.len(), 1);
+        assert_eq!(track.effects.delays.len(), 1);
+        assert_eq!(track.effects.tremolos.len(), 1);
+        assert_eq!(track.effects.vibratos.len(), 1);
+        assert_eq!(track.effects.choruses.len(), 1);
+        assert_eq!(track.effects.equalizers.len(), 1);
     }
 }

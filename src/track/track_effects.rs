@@ -1,5 +1,9 @@
 use derive_builder::Builder;
 use crate::effect::delay::Delay;
+use crate::effect::chorus::Chorus;
+use crate::effect::equalizer::Equalizer;
+use crate::effect::tremolo::Tremolo;
+use crate::effect::vibrato::Vibrato;
 use crate::envelope::envelope::Envelope;
 use crate::effect::flanger::Flanger;
 use crate::effect::lfo::LFO;
@@ -21,6 +25,22 @@ pub(crate) struct TrackEffects {
     #[allow(dead_code)]
     #[builder(default = "Vec::new()")]
     pub(crate) delays: Vec<Delay>,
+
+    #[allow(dead_code)]
+    #[builder(default = "Vec::new()")]
+    pub(crate) tremolos: Vec<Tremolo>,
+
+    #[allow(dead_code)]
+    #[builder(default = "Vec::new()")]
+    pub(crate) vibratos: Vec<Vibrato>,
+
+    #[allow(dead_code)]
+    #[builder(default = "Vec::new()")]
+    pub(crate) choruses: Vec<Chorus>,
+
+    #[allow(dead_code)]
+    #[builder(default = "Vec::new()")]
+    pub(crate) equalizers: Vec<Equalizer>,
 
     // TODO enforce -1.0..1.0 with builder validator or custom builder
     #[builder(default = "0.0")]
@@ -56,9 +76,30 @@ impl TrackEffects {
     pub(crate) fn has_delays(&self) -> bool {
         !self.delays.is_empty()
     }
-    
+
+    #[allow(dead_code)]
+    pub(crate) fn has_tremolos(&self) -> bool {
+        !self.tremolos.is_empty()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn has_vibratos(&self) -> bool {
+        !self.vibratos.is_empty()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn has_choruses(&self) -> bool {
+        !self.choruses.is_empty()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn has_equalizers(&self) -> bool {
+        !self.equalizers.is_empty()
+    }
+
     #[allow(dead_code)]
     pub(crate) fn has_effects(&self) -> bool {
-        self.has_envelopes() || self.has_lfos() || self.has_flangers() || self.has_delays()
+        self.has_envelopes() || self.has_lfos() || self.has_flangers() || self.has_delays() ||
+        self.has_tremolos() || self.has_vibratos() || self.has_choruses() || self.has_equalizers()
     }
 }
