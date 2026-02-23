@@ -50,7 +50,7 @@ impl SetCurPosition for GridNoteSequence {
 }
 
 impl IterMutWrapper for GridNoteSequence {
-    fn iter_mut(&mut self) -> std::slice::IterMut<Vec<PlaybackNote>> {
+    fn iter_mut(&mut self) -> std::slice::IterMut<'_, Vec<PlaybackNote>> {
         self.sequence.iter_mut()
     }
 }
@@ -198,13 +198,13 @@ impl GridNoteSequence {
 
     // Only makes sense with an index and as an internal method
     // Would be public in a grid- rather than time-based sequencer
-    pub(crate) fn sequence_iter_mut(&mut self) -> std::slice::IterMut<Vec<PlaybackNote>> {
+    pub(crate) fn sequence_iter_mut(&mut self) -> std::slice::IterMut<'_, Vec<PlaybackNote>> {
         self.sequence.iter_mut()
     }
 
     // Only makes sense with an index and as an internal method
     // Would be public in a grid- rather than time-based sequencer
-    pub(crate) fn sequence_iter(&self) -> std::slice::Iter<Vec<PlaybackNote>> {
+    pub(crate) fn sequence_iter(&self) -> std::slice::Iter<'_, Vec<PlaybackNote>> {
         self.sequence.iter()
     }
 

@@ -137,42 +137,42 @@ impl WesternPitchType {
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct DelayDef {
-    pub mix: f32,
-    pub decay: f32,
-    pub interval_ms: f32,
-    pub duration_ms: f32,
-    pub num_repeats: usize,
-    pub num_predelay_samples: usize,
-    pub num_concurrent_delays: usize,
+pub(crate) struct DelayDef {
+    pub(crate) mix: f32,
+    pub(crate) decay: f32,
+    pub(crate) interval_ms: f32,
+    pub(crate) duration_ms: f32,
+    pub(crate) num_repeats: usize,
+    pub(crate) num_predelay_samples: usize,
+    pub(crate) num_concurrent_delays: usize,
 }
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct FlangerDef {
-    pub delay_ms: f32,
-    pub mix: f32,
+pub(crate) struct FlangerDef {
+    pub(crate) delay_ms: f32,
+    pub(crate) mix: f32,
 }
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct LFODef {
-    pub freq: f32,
-    pub amp: f32,
-    pub waveforms: Vec<WaveformType>,
+pub(crate) struct LFODef {
+    pub(crate) freq: f32,
+    pub(crate) amp: f32,
+    pub(crate) waveforms: Vec<WaveformType>,
 }
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct FilterDef {
-    pub cutoff_frequency: f32,
-    pub resonance: f32,
-    pub mix: f32,
+pub(crate) struct FilterDef {
+    pub(crate) cutoff_frequency: f32,
+    pub(crate) resonance: f32,
+    pub(crate) mix: f32,
 }
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub enum EffectDef {
+pub(crate) enum EffectDef {
     Delay(DelayDef),
     Flanger(FlangerDef),
     LFO(LFODef),
@@ -181,29 +181,29 @@ pub enum EffectDef {
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct EnvelopeDef {
-    pub attack: (f32, f32),
-    pub attack_curve: EnvelopeCurve,
-    pub decay: (f32, f32),
-    pub decay_curve: EnvelopeCurve,
-    pub sustain: (f32, f32),
-    pub sustain_curve: EnvelopeCurve,
-    pub release: (f32, f32),
-    pub release_curve: EnvelopeCurve,
+pub(crate) struct EnvelopeDef {
+    pub(crate) attack: (f32, f32),
+    pub(crate) attack_curve: EnvelopeCurve,
+    pub(crate) decay: (f32, f32),
+    pub(crate) decay_curve: EnvelopeCurve,
+    pub(crate) sustain: (f32, f32),
+    pub(crate) sustain_curve: EnvelopeCurve,
+    pub(crate) release: (f32, f32),
+    pub(crate) release_curve: EnvelopeCurve,
 }
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct SequenceDef {
-    pub dur: DurationType,
-    pub tempo: u8,
-    pub num_steps: usize,
-    pub panning: Option<f32>,
+pub(crate) struct SequenceDef {
+    pub(crate) dur: DurationType,
+    pub(crate) tempo: u8,
+    pub(crate) num_steps: usize,
+    pub(crate) panning: Option<f32>,
 }
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub enum NoteDeclaration {
+pub(crate) enum NoteDeclaration {
     Oscillator {
         waveforms: Vec<WaveformType>,
         note_freq: f32,
@@ -219,35 +219,35 @@ pub enum NoteDeclaration {
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct OuterBlock {
-    pub sequence_def: SequenceDef,
-    pub envelope_defs: Vec<EnvelopeDef>,
-    pub effect_defs: Vec<EffectDef>,
-    pub note_declarations: Vec<NoteDeclaration>,
+pub(crate) struct OuterBlock {
+    pub(crate) sequence_def: SequenceDef,
+    pub(crate) envelope_defs: Vec<EnvelopeDef>,
+    pub(crate) effect_defs: Vec<EffectDef>,
+    pub(crate) note_declarations: Vec<NoteDeclaration>,
 }
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct MacroDef {
-    pub name: String,
-    pub expression: String,
+pub(crate) struct MacroDef {
+    pub(crate) name: String,
+    pub(crate) expression: String,
 }
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct Script {
-    pub macro_defs: HashMap<String, String>,
-    pub outer_blocks: Vec<OuterBlock>,
+pub(crate) struct Script {
+    pub(crate) macro_defs: HashMap<String, String>,
+    pub(crate) outer_blocks: Vec<OuterBlock>,
 }
 
 #[allow(dead_code)]
-pub struct Parser {
+pub(crate) struct Parser {
     tokens: Vec<String>,
     current: usize,
 }
 
 impl Parser {
-    pub fn new(input: &str) -> Result<Self, String> {
+    pub(crate) fn new(input: &str) -> Result<Self, String> {
         let input_tokens: Vec<String> = input.lines().map(|s| s.to_string()).collect();
 
         let input_after_macro = Self::expand_macros(input_tokens.join("\n").as_str())?;
@@ -558,7 +558,7 @@ impl Parser {
         tokens
     }
 
-    pub fn parse(&mut self) -> Result<TrackGrid<FixedTimeNoteSequence>, String> {
+    pub(crate) fn parse(&mut self) -> Result<TrackGrid<FixedTimeNoteSequence>, String> {
         let script = self.parse_script()?;
         self.build_track_grid(script)
     }
@@ -1234,7 +1234,7 @@ impl NoteDeclaration {
     }
 }
 
-pub fn parse_dsl(input: &str) -> Result<TrackGrid<FixedTimeNoteSequence>, String> {
+pub(crate) fn parse_dsl(input: &str) -> Result<TrackGrid<FixedTimeNoteSequence>, String> {
     let mut parser = Parser::new(input)?;
     parser.parse()
 }

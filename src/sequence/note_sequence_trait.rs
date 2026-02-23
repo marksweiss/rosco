@@ -23,5 +23,5 @@ pub(crate) trait SetCurPosition {
 
 #[allow(dead_code)]
 pub(crate) trait IterMutWrapper {
-    fn iter_mut(&mut self) -> std::slice::IterMut<Vec<PlaybackNote>>;
+    fn iter_mut(&mut self) -> std::slice::IterMut<'_, Vec<PlaybackNote>>;
 }

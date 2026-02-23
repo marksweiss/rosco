@@ -59,7 +59,7 @@ impl SetCurPosition for TimeNoteSequence {
 }
 
 impl IterMutWrapper for TimeNoteSequence {
-    fn iter_mut(&mut self) -> std::slice::IterMut<Vec<PlaybackNote>> {
+    fn iter_mut(&mut self) -> std::slice::IterMut<'_, Vec<PlaybackNote>> {
         self.sequence.iter_mut()
     }
 }
@@ -214,7 +214,7 @@ impl TimeNoteSequence {
         window_playback_notes
     }
     
-    pub(crate) fn notes_iter_mut(&mut self) -> std::slice::IterMut<Vec<PlaybackNote>> {
+    pub(crate) fn notes_iter_mut(&mut self) -> std::slice::IterMut<'_, Vec<PlaybackNote>> {
         self.sequence.iter_mut()
     }
 
