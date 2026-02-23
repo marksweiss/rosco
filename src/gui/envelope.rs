@@ -147,8 +147,10 @@ impl EnvelopeState {
 
         ui.add_space(4.0);
 
-        // --- Envelope graph ---
-        let desired_size = vec2(ui.available_width().max(200.0), 180.0);
+        // --- Envelope graph (fill remaining height, reserving space for readout) ---
+        let readout_height = 20.0;
+        let graph_height = (ui.available_height() - readout_height - ui.spacing().item_spacing.y).max(40.0);
+        let desired_size = vec2(ui.available_width().max(200.0), graph_height);
         let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click_and_drag());
 
         let painter = ui.painter_at(rect);
@@ -229,14 +231,16 @@ impl EnvelopeState {
     // --- Coordinate conversion ---
 
     fn to_screen(&self, point: (f32, f32), rect: Rect) -> Pos2 {
+        let pad = POINT_RADIUS;
         let x = rect.min.x + point.0 * rect.width();
-        let y = rect.max.y - point.1 * rect.height();
+        let y = (rect.max.y - pad) - point.1 * (rect.height() - 2.0 * pad);
         pos2(x, y)
     }
 
     fn from_screen(&self, screen: Pos2, rect: Rect) -> (f32, f32) {
+        let pad = POINT_RADIUS;
         let x = ((screen.x - rect.min.x) / rect.width()).clamp(0.0, 1.0);
-        let y = ((rect.max.y - screen.y) / rect.height()).clamp(0.0, 1.0);
+        let y = (((rect.max.y - pad) - screen.y) / (rect.height() - 2.0 * pad)).clamp(0.0, 1.0);
         (x, y)
     }
 

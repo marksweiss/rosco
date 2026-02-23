@@ -25,6 +25,7 @@ pub enum ParameterUpdate {
     FilterCutoff(f32),
     FilterResonance(f32),
     FilterMix(f32),
+    FilterBandwidth(f32),
 
     // Envelope (legacy simple variants)
     EnvelopeAttack(f32),

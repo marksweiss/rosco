@@ -146,12 +146,14 @@ impl ChorusState {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FilterState {
     pub enabled: bool,
     pub kind: FilterKind,
     pub cutoff: f32,
     pub resonance: f32,
     pub mix: f32,
+    pub bandwidth: f32,
 }
 
 impl Default for FilterState {
@@ -162,6 +164,7 @@ impl Default for FilterState {
             cutoff: 1000.0,
             resonance: 0.0,
             mix: 1.0,
+            bandwidth: 500.0,
         }
     }
 }
@@ -586,21 +589,39 @@ impl EffectsRackState {
                     }
                 });
 
+                let is_band = matches!(self.filter.kind, FilterKind::BandPass | FilterKind::Notch);
+                let freq_label = if is_band { "Center Freq (Hz)" } else { "Cutoff (Hz)" };
+
                 let before = self.filter.cutoff;
                 ui.add(
                     egui::Slider::new(&mut self.filter.cutoff, 20.0..=20000.0)
                         .logarithmic(true)
-                        .text("Cutoff (Hz)"),
+                        .text(freq_label),
                 );
                 if (self.filter.cutoff - before).abs() > 0.1 {
                     changes.push(EffectChange {
                         update: ParameterUpdate::FilterCutoff(self.filter.cutoff),
-                        description: format!("Filter cutoff → {:.1} Hz", self.filter.cutoff),
+                        description: format!("Filter {} → {:.1} Hz", freq_label.to_lowercase(), self.filter.cutoff),
                     });
                 }
 
+                if is_band {
+                    let before = self.filter.bandwidth;
+                    ui.add(
+                        egui::Slider::new(&mut self.filter.bandwidth, 10.0..=10000.0)
+                            .logarithmic(true)
+                            .text("Bandwidth (Hz)"),
+                    );
+                    if (self.filter.bandwidth - before).abs() > 0.1 {
+                        changes.push(EffectChange {
+                            update: ParameterUpdate::FilterBandwidth(self.filter.bandwidth),
+                            description: format!("Filter bandwidth → {:.1} Hz", self.filter.bandwidth),
+                        });
+                    }
+                }
+
                 let before = self.filter.resonance;
-                ui.add(egui::Slider::new(&mut self.filter.resonance, 0.0..=20.0).text("Resonance"));
+                ui.add(egui::Slider::new(&mut self.filter.resonance, 0.0..=20.0).text("Resonance (Q)"));
                 if (self.filter.resonance - before).abs() > 0.01 {
                     changes.push(EffectChange {
                         update: ParameterUpdate::FilterResonance(self.filter.resonance),

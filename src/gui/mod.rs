@@ -459,11 +459,16 @@ impl eframe::App for RoscoGuiApp {
             ui.separator();
 
             // Top row: Oscillator and Envelope side by side
+            const TOP_ROW_HEIGHT: f32 = 220.0;
             ui.columns(2, |cols| {
                 cols[0].group(|ui| {
+                    ui.set_min_height(TOP_ROW_HEIGHT);
+                    ui.set_max_height(TOP_ROW_HEIGHT);
                     self.render_oscillator(ui);
                 });
                 cols[1].group(|ui| {
+                    ui.set_min_height(TOP_ROW_HEIGHT);
+                    ui.set_max_height(TOP_ROW_HEIGHT);
                     self.render_envelope(ui);
                 });
             });
