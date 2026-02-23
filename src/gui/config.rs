@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use super::effects::EffectsRackState;
 use super::envelope::EnvelopeState;
+use super::oscillator::OscillatorChainsState;
 use super::sequencer::{TrackStrip, NUM_TRACKS};
 use super::theme::GuiTheme;
 
@@ -67,10 +68,10 @@ impl GuiConfig {
 // --- Session state (full GUI state snapshot) ---
 
 #[derive(Serialize, Deserialize)]
+#[serde(default)]
 pub struct SessionState {
-    pub oscillator_waveform: String,
-    pub oscillator_frequency: f32,
-    pub oscillator_volume: f32,
+    #[serde(default)]
+    pub oscillator_chains: OscillatorChainsState,
     pub tempo: f32,
     pub envelope: EnvelopeState,
     pub effects: EffectsRackState,
@@ -103,9 +104,7 @@ impl SessionState {
 impl Default for SessionState {
     fn default() -> Self {
         Self {
-            oscillator_waveform: "Sine".to_string(),
-            oscillator_frequency: 440.0,
-            oscillator_volume: 0.75,
+            oscillator_chains: OscillatorChainsState::default(),
             tempo: 120.0,
             envelope: EnvelopeState::default(),
             effects: EffectsRackState::default(),

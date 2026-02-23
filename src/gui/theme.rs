@@ -29,6 +29,11 @@ pub struct GuiTheme {
     pub stop_color: [u8; 3],
     pub transport_step_active: [u8; 3],
     pub transport_step_inactive: [u8; 3],
+
+    // Oscillator chain colors
+    pub chain_active_border: [u8; 3],
+    pub chain_slot_bg: [u8; 3],
+    pub chain_empty_slot: [u8; 3],
 }
 
 impl GuiTheme {
@@ -56,6 +61,10 @@ impl GuiTheme {
             stop_color: [220, 60, 50],
             transport_step_active: [255, 255, 60],
             transport_step_inactive: [55, 55, 60],
+
+            chain_active_border: [0, 200, 200],
+            chain_slot_bg: [35, 38, 45],
+            chain_empty_slot: [25, 25, 30],
         }
     }
 
@@ -83,6 +92,10 @@ impl GuiTheme {
             stop_color: [200, 50, 40],
             transport_step_active: [220, 200, 0],
             transport_step_inactive: [200, 200, 210],
+
+            chain_active_border: [0, 150, 180],
+            chain_slot_bg: [220, 225, 230],
+            chain_empty_slot: [235, 235, 240],
         }
     }
 
@@ -141,6 +154,16 @@ impl GuiTheme {
     }
     pub fn transport_step_inactive(&self) -> Color32 {
         rgb(self.transport_step_inactive)
+    }
+
+    pub fn chain_active_border(&self) -> Color32 {
+        rgb(self.chain_active_border)
+    }
+    pub fn chain_slot_bg(&self) -> Color32 {
+        rgb(self.chain_slot_bg)
+    }
+    pub fn chain_empty_slot(&self) -> Color32 {
+        rgb(self.chain_empty_slot)
     }
 }
 

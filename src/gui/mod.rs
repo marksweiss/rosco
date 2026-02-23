@@ -2,6 +2,7 @@ mod config;
 mod dsl_bridge;
 mod effects;
 mod envelope;
+mod oscillator;
 mod sequencer;
 mod shortcuts;
 pub mod theme;
@@ -9,15 +10,14 @@ mod transport;
 mod visualizations;
 
 use eframe::egui;
-use eframe::egui::{pos2, vec2, Color32, Pos2, Rect, Stroke};
 
-use crate::audio_gen::Waveform;
 use crate::tui::audio_bridge::{AudioBridge, AudioFeedback, ParameterUpdate};
 use crate::tui::app::SynthParameters;
 
 use config::{GuiConfig, SessionState};
 use effects::EffectsRackState;
 use envelope::EnvelopeState;
+use oscillator::OscillatorChainsState;
 use sequencer::SequencerState;
 use shortcuts::{FocusPanel, ShortcutAction, UndoStack};
 use theme::GuiTheme;
@@ -27,6 +27,7 @@ use visualizations::{LevelMeterState, OscilloscopeState, SpectrumState};
 pub struct RoscoGuiApp {
     audio_bridge: AudioBridge,
     params: SynthParameters,
+    oscillator_chains: OscillatorChainsState,
     envelope: EnvelopeState,
     effects: EffectsRackState,
     sequencer: SequencerState,
@@ -53,6 +54,7 @@ impl RoscoGuiApp {
         Self {
             audio_bridge,
             params: SynthParameters::default(),
+            oscillator_chains: OscillatorChainsState::default(),
             envelope: EnvelopeState::default(),
             effects: EffectsRackState::default(),
             sequencer: SequencerState::default(),
@@ -111,61 +113,13 @@ impl RoscoGuiApp {
     }
 
     fn render_oscillator(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Oscillator");
-        ui.add_space(8.0);
-
-        // Waveform selector with visual previews
-        ui.label("Waveform");
         let theme = self.theme.clone();
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-            let waveforms = [
-                (Waveform::Sine, "Sine"),
-                (Waveform::Saw, "Saw"),
-                (Waveform::Square, "Square"),
-                (Waveform::Triangle, "Triangle"),
-                (Waveform::Noise, "Noise"),
-                (Waveform::GaussianNoise, "Gauss"),
-            ];
-            for (waveform, label) in &waveforms {
-                let selected = self.params.oscillator_waveform == *waveform;
-                if waveform_button(ui, *waveform, *label, selected, &theme).clicked() && !selected {
-                    self.params.oscillator_waveform = *waveform;
-                    let update = ParameterUpdate::OscillatorWaveform(*waveform);
-                    self.send_update(update);
-                }
+        let changes = self.oscillator_chains.render(ui, &theme);
+        for change in changes {
+            match self.audio_bridge.send_parameter_update(change.update) {
+                Ok(()) => self.status_message = change.description,
+                Err(e) => self.status_message = format!("Error: {}", e),
             }
-        });
-
-        ui.add_space(8.0);
-
-        // Frequency slider (log-scale)
-        ui.label(format!("Frequency: {:.1} Hz", self.params.oscillator_frequency));
-        let freq_before = self.params.oscillator_frequency;
-        ui.add(
-            egui::Slider::new(&mut self.params.oscillator_frequency, 20.0..=20000.0)
-                .logarithmic(true)
-                .clamping(egui::SliderClamping::Always)
-                .text("Hz"),
-        );
-        if (self.params.oscillator_frequency - freq_before).abs() > 0.01 {
-            let update = ParameterUpdate::OscillatorFrequency(self.params.oscillator_frequency);
-            self.send_update(update);
-        }
-
-        ui.add_space(8.0);
-
-        // Volume slider
-        ui.label(format!("Volume: {:.2}", self.params.oscillator_volume));
-        let vol_before = self.params.oscillator_volume;
-        ui.add(
-            egui::Slider::new(&mut self.params.oscillator_volume, 0.0..=1.0)
-                .clamping(egui::SliderClamping::Always)
-                .text(""),
-        );
-        if (self.params.oscillator_volume - vol_before).abs() > 0.001 {
-            let update = ParameterUpdate::OscillatorVolume(self.params.oscillator_volume);
-            self.send_update(update);
         }
     }
 
@@ -317,11 +271,8 @@ impl RoscoGuiApp {
     }
 
     fn save_session(&self) {
-        let waveform_name = format!("{:?}", self.params.oscillator_waveform);
         let session = SessionState {
-            oscillator_waveform: waveform_name,
-            oscillator_frequency: self.params.oscillator_frequency,
-            oscillator_volume: self.params.oscillator_volume,
+            oscillator_chains: self.oscillator_chains.clone(),
             tempo: self.transport.tempo,
             envelope: self.envelope.to_serializable(),
             effects: self.effects.clone(),
@@ -472,7 +423,7 @@ impl eframe::App for RoscoGuiApp {
             ui.separator();
 
             // Top row: Oscillator and Envelope side by side
-            const TOP_ROW_HEIGHT: f32 = 220.0;
+            const TOP_ROW_HEIGHT: f32 = 300.0;
             ui.columns(2, |cols| {
                 cols[0].group(|ui| {
                     ui.set_min_height(TOP_ROW_HEIGHT);
@@ -517,100 +468,3 @@ impl eframe::App for RoscoGuiApp {
     }
 }
 
-// --- Waveform preview button widget ---
-
-const WAVE_BUTTON_SIZE: egui::Vec2 = vec2(64.0, 48.0);
-const WAVE_PREVIEW_SAMPLES: usize = 32;
-
-fn waveform_button(
-    ui: &mut egui::Ui,
-    waveform: Waveform,
-    label: &str,
-    selected: bool,
-    theme: &GuiTheme,
-) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(WAVE_BUTTON_SIZE, egui::Sense::click());
-
-    if ui.is_rect_visible(rect) {
-        let painter = ui.painter();
-
-        // Background
-        let bg = if selected { theme.wave_selected_bg() } else { theme.wave_normal_bg() };
-        let stroke_color = if selected {
-            Color32::from_rgb(0, 200, 200)
-        } else {
-            Color32::from_rgb(80, 80, 85)
-        };
-        painter.rect(rect, 4.0, bg, Stroke::new(1.0, stroke_color));
-
-        // Waveform preview area (top portion)
-        let wave_rect = Rect::from_min_max(
-            rect.min + vec2(6.0, 4.0),
-            pos2(rect.max.x - 6.0, rect.max.y - 16.0),
-        );
-
-        // Generate and draw waveform shape
-        let points = generate_waveform_points(waveform, wave_rect);
-        let wave_stroke = Stroke::new(1.5, theme.wave_color());
-        for pair in points.windows(2) {
-            painter.line_segment([pair[0], pair[1]], wave_stroke);
-        }
-
-        // Label at bottom
-        let text_pos = pos2(rect.center().x, rect.max.y - 10.0);
-        let text_color = if selected {
-            Color32::WHITE
-        } else {
-            Color32::from_rgb(170, 170, 175)
-        };
-        painter.text(
-            text_pos,
-            egui::Align2::CENTER_CENTER,
-            label,
-            egui::FontId::proportional(10.0),
-            text_color,
-        );
-    }
-
-    response
-}
-
-fn generate_waveform_points(waveform: Waveform, rect: Rect) -> Vec<Pos2> {
-    let n = WAVE_PREVIEW_SAMPLES;
-    let mid_y = rect.center().y;
-    let amp = rect.height() * 0.4;
-
-    (0..n)
-        .map(|i| {
-            let t = i as f32 / (n - 1) as f32; // 0.0 to 1.0
-            let x = rect.min.x + t * rect.width();
-            let sample = waveform_sample(waveform, t, i);
-            let y = mid_y - sample * amp;
-            pos2(x, y)
-        })
-        .collect()
-}
-
-fn waveform_sample(waveform: Waveform, t: f32, index: usize) -> f32 {
-    let phase = t * std::f32::consts::TAU;
-    match waveform {
-        Waveform::Sine => phase.sin(),
-        Waveform::Saw => 2.0 * t - 1.0,
-        Waveform::Square => {
-            if t < 0.5 { 1.0 } else { -1.0 }
-        }
-        Waveform::Triangle => {
-            if t < 0.5 {
-                4.0 * t - 1.0
-            } else {
-                3.0 - 4.0 * t
-            }
-        }
-        Waveform::Noise | Waveform::GaussianNoise => {
-            // Deterministic pseudo-random for consistent preview
-            let seed = (index as u32).wrapping_mul(2654435761);
-            let normalized = (seed % 1000) as f32 / 500.0 - 1.0;
-            normalized
-        }
-    }
-}

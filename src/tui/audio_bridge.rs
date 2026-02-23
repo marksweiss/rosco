@@ -15,10 +15,15 @@ pub enum FilterKind {
 
 #[derive(Debug, Clone)]
 pub enum ParameterUpdate {
-    // Oscillator
+    // Oscillator (legacy single-oscillator)
     OscillatorFrequency(f32),
     OscillatorVolume(f32),
     OscillatorWaveform(audio_gen::Waveform),
+
+    // Oscillator chains
+    OscillatorChainUpdate { chain: u8, oscillators: Vec<audio_gen::Waveform> },
+    OscillatorChainLevel { chain: u8, level: f32 },
+    OscillatorChainFrequency { chain: u8, frequency: f32 },
 
     // Filter
     FilterType(FilterKind),
