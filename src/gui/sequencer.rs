@@ -102,6 +102,30 @@ impl SequencerState {
 
     // --- Step grid ---
 
+    /// Given a pointer position relative to the grid origin, return the (track, step) cell indices
+    /// if the pointer is within a valid cell (not in a gap or header/label area).
+    fn hit_test_cell(rel: egui::Vec2) -> Option<(usize, usize)> {
+        let col_pitch = STEP_SIZE + STEP_GAP;
+        let row_pitch = STEP_SIZE + ROW_GAP;
+        let local_x = rel.x - TRACK_LABEL_WIDTH - STEP_GAP;
+        let local_y = rel.y - HEADER_HEIGHT - ROW_GAP;
+        if local_x < 0.0 || local_y < 0.0 {
+            return None;
+        }
+        let step = (local_x / col_pitch) as usize;
+        let track = (local_y / row_pitch) as usize;
+        if step >= NUM_STEPS || track >= NUM_TRACKS {
+            return None;
+        }
+        // Check we're inside the cell, not in the gap
+        let cell_offset_x = local_x - step as f32 * col_pitch;
+        let cell_offset_y = local_y - track as f32 * row_pitch;
+        if cell_offset_x > STEP_SIZE || cell_offset_y > STEP_SIZE {
+            return None;
+        }
+        Some((track, step))
+    }
+
     fn render_grid(&mut self, ui: &mut egui::Ui, changes: &mut Vec<EffectChange>, theme: &GuiTheme) {
         let text_color = ui.visuals().text_color();
 
@@ -113,9 +137,10 @@ impl SequencerState {
             + NUM_TRACKS as f32 * STEP_SIZE
             + (NUM_TRACKS as f32 - 1.0) * ROW_GAP;
 
-        // Allocate the full grid area as one rect
-        let (full_rect, _) =
-            ui.allocate_exact_size(vec2(grid_width, grid_height), egui::Sense::hover());
+        // Allocate the full grid area with click_and_drag so the grid claims
+        // pointer events instead of the parent scroll area.
+        let (full_rect, grid_response) =
+            ui.allocate_exact_size(vec2(grid_width, grid_height), egui::Sense::click_and_drag());
         let origin = full_rect.min;
         let painter = ui.painter();
 
@@ -125,6 +150,85 @@ impl SequencerState {
         // Helper: y position for a track row
         let track_y =
             |track: usize| origin.y + HEADER_HEIGHT + ROW_GAP + track as f32 * (STEP_SIZE + ROW_GAP);
+
+        // --- Handle click / drag-paint interaction via the single grid response ---
+        let hover_cell: Option<(usize, usize)> = grid_response
+            .hover_pos()
+            .and_then(|pos| Self::hit_test_cell(pos - origin));
+
+        // Use clicked() for reliable single-cell toggle (fires on pointer release)
+        if grid_response.clicked() {
+            if let Some(pos) = grid_response.interact_pointer_pos() {
+                if let Some((track, step)) = Self::hit_test_cell(pos - origin) {
+                    let new_state = !self.tracks[track].steps[step].enabled;
+                    self.tracks[track].steps[step].enabled = new_state;
+                    changes.push(EffectChange {
+                        update: ParameterUpdate::SequencerStep {
+                            track: track as u8,
+                            step: step as u8,
+                            enabled: new_state,
+                        },
+                        description: format!(
+                            "T{}:{} → {}",
+                            track + 1,
+                            step + 1,
+                            if new_state { "on" } else { "off" }
+                        ),
+                    });
+                }
+            }
+        }
+
+        // Drag-paint: hold and drag across cells to paint them on/off
+        if grid_response.drag_started() {
+            if let Some(pos) = grid_response.interact_pointer_pos() {
+                if let Some((track, step)) = Self::hit_test_cell(pos - origin) {
+                    let new_state = !self.tracks[track].steps[step].enabled;
+                    self.drag_painting = Some(new_state);
+                    self.tracks[track].steps[step].enabled = new_state;
+                    changes.push(EffectChange {
+                        update: ParameterUpdate::SequencerStep {
+                            track: track as u8,
+                            step: step as u8,
+                            enabled: new_state,
+                        },
+                        description: format!(
+                            "T{}:{} → {}",
+                            track + 1,
+                            step + 1,
+                            if new_state { "on" } else { "off" }
+                        ),
+                    });
+                }
+            }
+        } else if grid_response.dragged() {
+            if let Some(paint_state) = self.drag_painting {
+                if let Some(pos) = grid_response.interact_pointer_pos() {
+                    if let Some((track, step)) = Self::hit_test_cell(pos - origin) {
+                        if self.tracks[track].steps[step].enabled != paint_state {
+                            self.tracks[track].steps[step].enabled = paint_state;
+                            changes.push(EffectChange {
+                                update: ParameterUpdate::SequencerStep {
+                                    track: track as u8,
+                                    step: step as u8,
+                                    enabled: paint_state,
+                                },
+                                description: format!(
+                                    "T{}:{} → {}",
+                                    track + 1,
+                                    step + 1,
+                                    if paint_state { "on" } else { "off" }
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        if grid_response.drag_stopped() {
+            self.drag_painting = None;
+        }
 
         // --- Header row ---
         for step in 0..NUM_STEPS {
@@ -141,7 +245,7 @@ impl SequencerState {
             }
         }
 
-        // --- Track rows ---
+        // --- Track rows (draw only) ---
         for track_idx in 0..NUM_TRACKS {
             let row_y = track_y(track_idx);
 
@@ -158,65 +262,15 @@ impl SequencerState {
                 );
             }
 
-            // Step cells
+            // Step cells — drawing only, interaction handled above
             for step_idx in 0..NUM_STEPS {
                 let x = step_x(step_idx);
                 let rect = Rect::from_min_size(pos2(x, row_y), vec2(STEP_SIZE, STEP_SIZE));
 
-                let cell = &self.tracks[track_idx].steps[step_idx];
-                let is_playing = self.playing_step == Some(step_idx);
-                let enabled = cell.enabled;
-
-                // Interact with the cell rect
-                let id = ui.id().with(("step", track_idx, step_idx));
-                let response = ui.interact(rect, id, egui::Sense::click_and_drag());
-
-                // Handle click/drag painting
-                if response.drag_started() {
-                    let new_state = !enabled;
-                    self.drag_painting = Some(new_state);
-                    self.tracks[track_idx].steps[step_idx].enabled = new_state;
-                    changes.push(EffectChange {
-                        update: ParameterUpdate::SequencerStep {
-                            track: track_idx as u8,
-                            step: step_idx as u8,
-                            enabled: new_state,
-                        },
-                        description: format!(
-                            "T{}:{} → {}",
-                            track_idx + 1,
-                            step_idx + 1,
-                            if new_state { "on" } else { "off" }
-                        ),
-                    });
-                } else if response.dragged() {
-                    if let Some(paint_state) = self.drag_painting {
-                        if self.tracks[track_idx].steps[step_idx].enabled != paint_state {
-                            self.tracks[track_idx].steps[step_idx].enabled = paint_state;
-                            changes.push(EffectChange {
-                                update: ParameterUpdate::SequencerStep {
-                                    track: track_idx as u8,
-                                    step: step_idx as u8,
-                                    enabled: paint_state,
-                                },
-                                description: format!(
-                                    "T{}:{} → {}",
-                                    track_idx + 1,
-                                    step_idx + 1,
-                                    if paint_state { "on" } else { "off" }
-                                ),
-                            });
-                        }
-                    }
-                }
-
-                if response.drag_stopped() {
-                    self.drag_painting = None;
-                }
-
-                // Draw step
                 if ui.is_rect_visible(rect) {
                     let enabled_now = self.tracks[track_idx].steps[step_idx].enabled;
+                    let is_playing = self.playing_step == Some(step_idx);
+                    let is_hovered = hover_cell == Some((track_idx, step_idx));
 
                     let step_enabled_c = theme.step_enabled();
                     let bg = if is_playing && enabled_now {
@@ -230,7 +284,7 @@ impl SequencerState {
                         )
                     } else if is_playing {
                         Color32::from_rgb(60, 60, 30)
-                    } else if response.hovered() {
+                    } else if is_hovered {
                         theme.step_hover()
                     } else {
                         theme.step_disabled()
