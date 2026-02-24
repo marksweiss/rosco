@@ -3,11 +3,194 @@ use ringbuf::{HeapConsumer, HeapProducer};
 
 use crate::audio_gen::oscillator::{self, OscillatorTables, Waveform};
 use crate::common::constants::SAMPLE_RATE;
-use crate::tui::audio_bridge::{AudioFeedback, ParameterUpdate};
+use crate::effect::chorus::ChorusBuilder;
+use crate::effect::delay::DelayBuilder;
+use crate::effect::flanger::FlangerBuilder;
+use crate::effect::lfo::{LFOBuilder, LFO};
+use crate::effect::tremolo::TremoloBuilder;
+use crate::effect::vibrato::VibratoBuilder;
+use crate::filter::band_pass_filter::BandPassFilterBuilder;
+use crate::filter::high_pass_filter::HighPassFilterBuilder;
+use crate::filter::low_pass_filter::LowPassFilterBuilder;
+use crate::filter::notch_filter::NotchFilterBuilder;
+use crate::tui::audio_bridge::{AudioFeedback, FilterKind, ParameterUpdate};
+use super::effect_chains::EffectInstance;
 
 const NUM_CHAINS: usize = 8;
 const NUM_TRACKS: usize = 8;
 const NUM_STEPS: usize = 16;
+
+// --- Effect chain types for real-time processing ---
+
+enum LiveEffect {
+    Lfo(LFO),
+    Tremolo(crate::effect::tremolo::Tremolo),
+    Vibrato(crate::effect::vibrato::Vibrato),
+    Flanger(crate::effect::flanger::Flanger),
+    Chorus(crate::effect::chorus::Chorus),
+    Delay(crate::effect::delay::Delay),
+    LowPass(crate::filter::low_pass_filter::LowPassFilter),
+    HighPass(crate::filter::high_pass_filter::HighPassFilter),
+    BandPass(crate::filter::band_pass_filter::BandPassFilter),
+    Notch(crate::filter::notch_filter::NotchFilter),
+}
+
+impl LiveEffect {
+    fn process_sample(&mut self, sample: f32, sample_clock: u64) -> f32 {
+        match self {
+            LiveEffect::Lfo(e) => e.apply_effect(sample, sample_clock),
+            LiveEffect::Tremolo(e) => e.apply_effect(sample, sample_clock as f32),
+            LiveEffect::Vibrato(e) => e.apply_effect(sample, sample_clock as f32),
+            LiveEffect::Flanger(e) => e.apply_effect(sample, sample_clock as f32),
+            LiveEffect::Chorus(e) => e.apply_effect(sample, sample_clock as f32),
+            LiveEffect::Delay(e) => e.apply_effect(sample, sample_clock as f32),
+            LiveEffect::LowPass(e) => e.apply_effect(sample, sample_clock as f32),
+            LiveEffect::HighPass(e) => e.apply_effect(sample, sample_clock as f32),
+            LiveEffect::BandPass(e) => e.apply_effect(sample, sample_clock as f32),
+            LiveEffect::Notch(e) => e.apply_effect(sample, sample_clock as f32),
+        }
+    }
+}
+
+struct EffectChainState {
+    effects: Vec<LiveEffect>,
+    enabled: Vec<bool>,
+    dry_wet: f32,
+}
+
+impl Default for EffectChainState {
+    fn default() -> Self {
+        Self {
+            effects: Vec::new(),
+            enabled: Vec::new(),
+            dry_wet: 0.5,
+        }
+    }
+}
+
+fn build_live_effects(instances: &[EffectInstance]) -> (Vec<LiveEffect>, Vec<bool>) {
+    let mut effects = Vec::new();
+    let mut enabled = Vec::new();
+
+    for inst in instances {
+        let (effect, is_enabled) = match inst {
+            EffectInstance::Tremolo(s) => {
+                let e = TremoloBuilder::default()
+                    .mod_freq(s.mod_freq)
+                    .mod_depth(s.mod_depth)
+                    .build()
+                    .unwrap();
+                (LiveEffect::Tremolo(e), s.enabled)
+            }
+            EffectInstance::Vibrato(s) => {
+                let e = VibratoBuilder::default()
+                    .avg_delay(s.avg_delay)
+                    .mod_width(s.mod_width)
+                    .mod_freq(s.mod_freq)
+                    .build()
+                    .unwrap();
+                (LiveEffect::Vibrato(e), s.enabled)
+            }
+            EffectInstance::Flanger(s) => {
+                let e = FlangerBuilder::default()
+                    .delay_ms(s.delay_ms)
+                    .depth_ms(s.depth_ms)
+                    .rate_hz(s.rate_hz)
+                    .mix(s.mix)
+                    .feedback(s.feedback)
+                    .build()
+                    .unwrap();
+                (LiveEffect::Flanger(e), s.enabled)
+            }
+            EffectInstance::Chorus(s) => {
+                let count = s.chorus_count;
+                // Generate default mod_freqs and mod_widths (not in GUI state)
+                let default_mod_freqs = [0.25, 0.33, 0.40, 0.50, 0.60, 0.70];
+                let default_mod_widths = [0.003, 0.004, 0.005, 0.003, 0.004, 0.005];
+                let mod_freqs: Vec<f32> = default_mod_freqs.iter().copied().take(count).collect();
+                let mod_widths: Vec<f32> = default_mod_widths.iter().copied().take(count).collect();
+
+                let e = ChorusBuilder::default()
+                    .chorus_count(count)
+                    .dry_gain(s.dry_gain)
+                    .chorus_gains(s.voice_gains.clone())
+                    .chorus_delays(s.voice_delays.clone())
+                    .mod_freqs(mod_freqs)
+                    .mod_widths(mod_widths)
+                    .build()
+                    .unwrap();
+                (LiveEffect::Chorus(e), s.enabled)
+            }
+            EffectInstance::Delay(s) => {
+                let e = DelayBuilder::default()
+                    .mix(s.mix)
+                    .decay(s.decay)
+                    .interval_ms(s.interval_ms)
+                    .duration_ms(s.duration_ms)
+                    .num_repeats(s.num_repeats)
+                    .build()
+                    .unwrap();
+                (LiveEffect::Delay(e), s.enabled)
+            }
+            EffectInstance::Lfo(s) => {
+                let freq = s.frequency.clamp(0.01, 22050.0);
+                let e = LFOBuilder::default()
+                    .frequency(freq)
+                    .amplitude(s.amplitude)
+                    .build()
+                    .unwrap();
+                (LiveEffect::Lfo(e), s.enabled)
+            }
+            EffectInstance::Filter(s) => {
+                let effect = match s.kind {
+                    FilterKind::LowPass => {
+                        let e = LowPassFilterBuilder::default()
+                            .cutoff_frequency(s.cutoff)
+                            .resonance(s.resonance)
+                            .mix(s.mix)
+                            .build_with_coefficients()
+                            .unwrap();
+                        LiveEffect::LowPass(e)
+                    }
+                    FilterKind::HighPass => {
+                        let e = HighPassFilterBuilder::default()
+                            .cutoff_frequency(s.cutoff)
+                            .resonance(s.resonance)
+                            .mix(s.mix)
+                            .build_with_coefficients()
+                            .unwrap();
+                        LiveEffect::HighPass(e)
+                    }
+                    FilterKind::BandPass => {
+                        let e = BandPassFilterBuilder::default()
+                            .center_frequency(s.cutoff)
+                            .bandwidth(s.bandwidth)
+                            .resonance(s.resonance)
+                            .mix(s.mix)
+                            .build_with_coefficients()
+                            .unwrap();
+                        LiveEffect::BandPass(e)
+                    }
+                    FilterKind::Notch => {
+                        let e = NotchFilterBuilder::default()
+                            .center_frequency(s.cutoff)
+                            .bandwidth(s.bandwidth)
+                            .resonance(s.resonance)
+                            .mix(s.mix)
+                            .build_with_coefficients()
+                            .unwrap();
+                        LiveEffect::Notch(e)
+                    }
+                };
+                (effect, s.enabled)
+            }
+        };
+        effects.push(effect);
+        enabled.push(is_enabled);
+    }
+
+    (effects, enabled)
+}
 
 // --- Voice / track state structs (live inside the cpal callback closure) ---
 
@@ -96,6 +279,7 @@ struct SynthState {
     master_volume: f32,
 
     osc_tables: OscillatorTables,
+    effect_chains: [EffectChainState; NUM_CHAINS],
 }
 
 impl SynthState {
@@ -116,6 +300,7 @@ impl SynthState {
             envelope: EnvelopeParams::default(),
             master_volume: 0.75,
             osc_tables: OscillatorTables::new(),
+            effect_chains: Default::default(),
         }
     }
 
@@ -241,7 +426,20 @@ impl SynthState {
                 ParameterUpdate::OscillatorVolume(v) => {
                     self.master_volume = v;
                 }
-                // Ignored for now (effects not in audio path yet)
+                ParameterUpdate::EffectChainUpdate { chain, effects_json } => {
+                    if (chain as usize) < NUM_CHAINS {
+                        if let Ok(instances) = serde_json::from_str::<Vec<EffectInstance>>(&effects_json) {
+                            let (effects, enabled) = build_live_effects(&instances);
+                            self.effect_chains[chain as usize].effects = effects;
+                            self.effect_chains[chain as usize].enabled = enabled;
+                        }
+                    }
+                }
+                ParameterUpdate::EffectChainDryWet { chain, dry_wet } => {
+                    if (chain as usize) < NUM_CHAINS {
+                        self.effect_chains[chain as usize].dry_wet = dry_wet;
+                    }
+                }
                 _ => {}
             }
         }
@@ -346,11 +544,26 @@ impl SynthState {
 
             // Apply envelope
             let env = self.envelope_value(note);
+            sample *= env;
 
-            // Apply velocity, track volume, chain level, envelope, master volume
+            // Apply effect chain for this track
+            let sample_clock = self.sample_clock;
+            let ec = &mut self.effect_chains[track_idx];
+            if !ec.effects.is_empty() && ec.dry_wet > 0.0 {
+                let dry_sample = sample;
+                let mut wet_sample = sample;
+                for (i, effect) in ec.effects.iter_mut().enumerate() {
+                    if ec.enabled[i] {
+                        wet_sample = effect.process_sample(wet_sample, sample_clock);
+                    }
+                }
+                sample = dry_sample * (1.0 - ec.dry_wet) + wet_sample * ec.dry_wet;
+            }
+
+            // Apply velocity, track volume, chain level, master volume
             let velocity = self.tracks[track_idx].velocities[self.current_step];
             let track_vol = self.tracks[track_idx].volume;
-            let amplitude = sample * velocity * track_vol * chain.level * env * self.master_volume;
+            let amplitude = sample * velocity * track_vol * chain.level * self.master_volume;
 
             // Pan: -1.0 = full left, 0.0 = center, 1.0 = full right
             let pan = self.tracks[track_idx].pan;

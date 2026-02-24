@@ -186,6 +186,24 @@ impl RoscoGuiApp {
         let _ = self.audio_bridge.send_parameter_update(
             ParameterUpdate::EnvelopeSustain(self.envelope.sustain.0),
         );
+        // Effect chains
+        for (i, chain) in self.effect_chains.chains.iter().enumerate() {
+            if !chain.effects.is_empty() {
+                let json = serde_json::to_string(&chain.effects).unwrap_or_default();
+                let _ = self.audio_bridge.send_parameter_update(
+                    ParameterUpdate::EffectChainUpdate {
+                        chain: i as u8,
+                        effects_json: json,
+                    },
+                );
+            }
+            let _ = self.audio_bridge.send_parameter_update(
+                ParameterUpdate::EffectChainDryWet {
+                    chain: i as u8,
+                    dry_wet: self.effect_chains.dry_wet[i],
+                },
+            );
+        }
     }
 
     fn process_audio_feedback(&mut self) {
