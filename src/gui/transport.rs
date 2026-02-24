@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use eframe::egui;
 use eframe::egui::{vec2, Color32};
 
@@ -14,6 +16,7 @@ pub struct TransportState {
     pub tempo: f32,
     pub current_step: usize,
     pub position: PlaybackPosition,
+    last_step_time: Option<Instant>,
 }
 
 #[derive(Clone, Debug)]
@@ -40,6 +43,7 @@ impl Default for TransportState {
             tempo: 120.0,
             current_step: 0,
             position: PlaybackPosition::default(),
+            last_step_time: None,
         }
     }
 }
@@ -62,11 +66,13 @@ impl TransportState {
             {
                 self.is_playing = !self.is_playing;
                 if self.is_playing {
+                    self.last_step_time = Some(Instant::now());
                     changes.push(EffectChange {
                         update: ParameterUpdate::TransportPlay,
                         description: "Transport → Play".to_string(),
                     });
                 } else {
+                    self.last_step_time = None;
                     changes.push(EffectChange {
                         update: ParameterUpdate::TransportStop,
                         description: "Transport → Pause".to_string(),
@@ -84,6 +90,7 @@ impl TransportState {
             {
                 self.is_playing = false;
                 self.current_step = 0;
+                self.last_step_time = None;
                 self.position = PlaybackPosition::default();
                 changes.push(EffectChange {
                     update: ParameterUpdate::TransportStop,
@@ -140,16 +147,39 @@ impl TransportState {
         changes
     }
 
-    /// Advance the step (called externally when simulating playback).
-    pub fn advance_step(&mut self) {
-        if self.is_playing {
-            self.current_step = (self.current_step + 1) % NUM_STEPS;
-            // Update position display
-            let total_steps = self.current_step;
-            self.position.beat = (total_steps / 4 % 4) as u8 + 1;
-            if total_steps == 0 && self.position.measure > 0 {
-                self.position.measure += 1;
-            }
+    pub fn start_timer(&mut self) {
+        self.last_step_time = Some(Instant::now());
+    }
+
+    pub fn stop_timer(&mut self) {
+        self.last_step_time = None;
+    }
+
+    /// Called each frame to advance the sequencer step based on tempo.
+    /// Returns true if the step advanced this frame.
+    pub fn tick(&mut self) -> bool {
+        if !self.is_playing {
+            return false;
         }
+
+        let now = Instant::now();
+        let step_duration_secs = 60.0 / self.tempo / 4.0; // 16th notes
+
+        if let Some(last) = self.last_step_time {
+            if now.duration_since(last).as_secs_f32() >= step_duration_secs {
+                self.last_step_time = Some(now);
+                self.current_step = (self.current_step + 1) % NUM_STEPS;
+                // Update position display
+                self.position.beat = (self.current_step / 4 % 4) as u8 + 1;
+                if self.current_step == 0 {
+                    self.position.measure += 1;
+                }
+                return true;
+            }
+        } else {
+            self.last_step_time = Some(now);
+        }
+
+        false
     }
 }

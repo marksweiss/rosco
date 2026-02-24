@@ -1,3 +1,4 @@
+mod audio_engine;
 mod config;
 mod dsl_bridge;
 mod effect_chains;
@@ -15,6 +16,7 @@ use eframe::egui;
 use crate::tui::audio_bridge::{AudioBridge, AudioFeedback, ParameterUpdate};
 use crate::tui::app::SynthParameters;
 
+use audio_engine::AudioEngine;
 use config::{GuiConfig, SessionState};
 use effect_chains::EffectChainsState;
 use effects::EffectsRackState;
@@ -28,6 +30,8 @@ use visualizations::{LevelMeterState, OscilloscopeState, SpectrumState};
 
 pub struct RoscoGuiApp {
     audio_bridge: AudioBridge,
+    _audio_engine: Option<AudioEngine>,
+    audio_engine_active: bool,
     params: SynthParameters,
     oscillator_chains: OscillatorChainsState,
     envelope: EnvelopeState,
@@ -50,12 +54,27 @@ pub struct RoscoGuiApp {
 
 impl RoscoGuiApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        let audio_bridge = AudioBridge::new()
+        let mut audio_bridge = AudioBridge::new()
             .expect("Failed to create AudioBridge");
+
+        // Take engine-side channels and create the real-time audio engine
+        let (param_consumer, feedback_producer) = audio_bridge.take_engine_channels();
+        let (audio_engine, audio_engine_active) =
+            match AudioEngine::new(param_consumer, feedback_producer) {
+                Ok(engine) => (Some(engine), true),
+                Err(e) => {
+                    eprintln!("Warning: Failed to create audio engine: {}. Audio disabled.", e);
+                    (None, false)
+                }
+            };
+
         let config = GuiConfig::load();
         let theme = config.resolve_theme();
-        Self {
+
+        let mut app = Self {
             audio_bridge,
+            _audio_engine: audio_engine,
+            audio_engine_active,
             params: SynthParameters::default(),
             oscillator_chains: OscillatorChainsState::default(),
             envelope: EnvelopeState::default(),
@@ -74,7 +93,14 @@ impl RoscoGuiApp {
             cpu_usage: 0.0,
             buffer_health: 1.0,
             status_message: "Ready".to_string(),
+        };
+
+        // Send the initial GUI state to the audio engine
+        if app.audio_engine_active {
+            app.send_initial_state();
         }
+
+        app
     }
 
     fn send_update(&mut self, update: ParameterUpdate) {
@@ -83,6 +109,83 @@ impl RoscoGuiApp {
             Ok(()) => self.status_message = description,
             Err(e) => self.status_message = format!("Error: {}", e),
         }
+    }
+
+    /// Push all current GUI state to the audio engine so it starts in sync.
+    fn send_initial_state(&mut self) {
+        // Tempo
+        let _ = self.audio_bridge.send_parameter_update(
+            ParameterUpdate::TempoChange(self.transport.tempo),
+        );
+        // Master volume
+        let _ = self.audio_bridge.send_parameter_update(
+            ParameterUpdate::OscillatorVolume(self.oscillator_chains.volume),
+        );
+        // Oscillator chains
+        for (i, chain) in self.oscillator_chains.chains.iter().enumerate() {
+            let _ = self.audio_bridge.send_parameter_update(
+                ParameterUpdate::OscillatorChainUpdate {
+                    chain: i as u8,
+                    oscillators: chain.oscillators.clone(),
+                },
+            );
+            let _ = self.audio_bridge.send_parameter_update(
+                ParameterUpdate::OscillatorChainFrequency {
+                    chain: i as u8,
+                    frequency: chain.frequency,
+                },
+            );
+            let _ = self.audio_bridge.send_parameter_update(
+                ParameterUpdate::OscillatorChainLevel {
+                    chain: i as u8,
+                    level: self.oscillator_chains.mixer_levels[i],
+                },
+            );
+        }
+        // Sequencer tracks
+        for (track_idx, track) in self.sequencer.tracks.iter().enumerate() {
+            for (step_idx, step) in track.steps.iter().enumerate() {
+                if step.enabled {
+                    let _ = self.audio_bridge.send_parameter_update(
+                        ParameterUpdate::SequencerStep {
+                            track: track_idx as u8,
+                            step: step_idx as u8,
+                            enabled: true,
+                        },
+                    );
+                }
+            }
+            let _ = self.audio_bridge.send_parameter_update(
+                ParameterUpdate::TrackVolume {
+                    track: track_idx as u8,
+                    volume: track.volume,
+                },
+            );
+            let _ = self.audio_bridge.send_parameter_update(
+                ParameterUpdate::TrackPan {
+                    track: track_idx as u8,
+                    pan: track.pan,
+                },
+            );
+            if track.mute {
+                let _ = self.audio_bridge.send_parameter_update(
+                    ParameterUpdate::TrackMute {
+                        track: track_idx as u8,
+                        muted: true,
+                    },
+                );
+            }
+        }
+        // Envelope
+        let _ = self.audio_bridge.send_parameter_update(
+            ParameterUpdate::EnvelopeAttack(self.envelope.attack.0),
+        );
+        let _ = self.audio_bridge.send_parameter_update(
+            ParameterUpdate::EnvelopeDecay(self.envelope.decay.0),
+        );
+        let _ = self.audio_bridge.send_parameter_update(
+            ParameterUpdate::EnvelopeSustain(self.envelope.sustain.0),
+        );
     }
 
     fn process_audio_feedback(&mut self) {
@@ -221,6 +324,11 @@ impl RoscoGuiApp {
         match action {
             ShortcutAction::PlayPause => {
                 self.transport.is_playing = !self.transport.is_playing;
+                if self.transport.is_playing {
+                    self.transport.start_timer();
+                } else {
+                    self.transport.stop_timer();
+                }
                 let update = if self.transport.is_playing {
                     ParameterUpdate::TransportPlay
                 } else {
@@ -231,6 +339,7 @@ impl RoscoGuiApp {
             ShortcutAction::Stop => {
                 self.transport.is_playing = false;
                 self.transport.current_step = 0;
+                self.transport.stop_timer();
                 self.transport.position = transport::PlaybackPosition::default();
                 self.send_update(ParameterUpdate::TransportStop);
             }
@@ -358,6 +467,11 @@ impl eframe::App for RoscoGuiApp {
 
         // Process audio feedback from the bridge
         self.process_audio_feedback();
+
+        // Advance sequencer step based on tempo (skip when audio engine drives timing)
+        if !self.audio_engine_active {
+            self.transport.tick();
+        }
 
         // Top menu bar with file operations, theme selector, and viz toggle
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {

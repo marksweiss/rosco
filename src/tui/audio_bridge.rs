@@ -107,12 +107,12 @@ pub enum AudioFeedback {
 pub struct AudioBridge {
     // Parameter update channel (UI → Audio)
     param_producer: HeapProducer<ParameterUpdate>,
-    param_consumer: HeapConsumer<ParameterUpdate>,
-    
+    param_consumer: Option<HeapConsumer<ParameterUpdate>>,
+
     // Audio feedback channel (Audio → UI)
-    feedback_producer: HeapProducer<AudioFeedback>,
+    feedback_producer: Option<HeapProducer<AudioFeedback>>,
     feedback_consumer: HeapConsumer<AudioFeedback>,
-    
+
     // Shared atomic parameters for high-frequency updates
     oscillator_freq: Arc<AtomicF32>,
     filter_cutoff: Arc<AtomicF32>,
@@ -138,8 +138,8 @@ impl AudioBridge {
         println!("Constructing AudioBridge struct...");
         Ok(Self {
             param_producer,
-            param_consumer,
-            feedback_producer,
+            param_consumer: Some(param_consumer),
+            feedback_producer: Some(feedback_producer),
             feedback_consumer,
             oscillator_freq,
             filter_cutoff,
@@ -168,17 +168,32 @@ impl AudioBridge {
     
     pub fn receive_parameter_updates(&mut self) -> Vec<ParameterUpdate> {
         let mut updates = Vec::new();
-        while let Some(update) = self.param_consumer.pop() {
-            updates.push(update);
+        if let Some(ref mut consumer) = self.param_consumer {
+            while let Some(update) = consumer.pop() {
+                updates.push(update);
+            }
         }
         updates
     }
-    
+
     pub fn send_audio_feedback(&mut self, feedback: AudioFeedback) -> Result<(), TuiError> {
-        if self.feedback_producer.push(feedback).is_err() {
-            return Err(TuiError::Audio("Feedback buffer full".to_string()));
+        if let Some(ref mut producer) = self.feedback_producer {
+            if producer.push(feedback).is_err() {
+                return Err(TuiError::Audio("Feedback buffer full".to_string()));
+            }
         }
         Ok(())
+    }
+
+    /// Take ownership of the engine-side ring buffer halves.
+    /// Call this once to pass them to AudioEngine::new().
+    pub fn take_engine_channels(&mut self)
+        -> (HeapConsumer<ParameterUpdate>, HeapProducer<AudioFeedback>)
+    {
+        (
+            self.param_consumer.take().expect("engine channels already taken"),
+            self.feedback_producer.take().expect("engine channels already taken"),
+        )
     }
     
     pub fn receive_audio_feedback(&mut self) -> Vec<AudioFeedback> {
