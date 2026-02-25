@@ -2,6 +2,7 @@ use eframe::egui;
 use eframe::egui::{pos2, vec2, Color32, Rect};
 use serde::{Deserialize, Serialize};
 
+use crate::note::scales::WesternPitch;
 use crate::tui::audio_bridge::ParameterUpdate;
 
 use super::effects::EffectChange;
@@ -25,6 +26,8 @@ const MIXER_WIDTH: f32 = 220.0;
 pub struct StepCell {
     pub enabled: bool,
     pub velocity: f32, // 0.0–1.0
+    #[serde(default)]
+    pub pitch: u8,     // Chromatic pitch index 0-11 (C=0, C#=1, ... B=11)
 }
 
 impl Default for StepCell {
@@ -32,6 +35,7 @@ impl Default for StepCell {
         Self {
             enabled: false,
             velocity: 0.8,
+            pitch: 0,
         }
     }
 }
@@ -45,7 +49,11 @@ pub struct TrackStrip {
     pub pan: f32,
     pub mute: bool,
     pub solo: bool,
+    #[serde(default = "default_octave")]
+    pub octave: u8,    // 1-8, default 3
 }
+
+fn default_octave() -> u8 { 3 }
 
 impl Default for TrackStrip {
     fn default() -> Self {
@@ -55,6 +63,7 @@ impl Default for TrackStrip {
             pan: 0.0,
             mute: false,
             solo: false,
+            octave: 3,
         }
     }
 }
@@ -65,6 +74,7 @@ pub struct SequencerState {
     pub tracks: [TrackStrip; NUM_TRACKS],
     pub playing_step: Option<usize>,
     drag_painting: Option<bool>, // Some(true) = enabling, Some(false) = disabling
+    pitch_popup: Option<(usize, usize)>, // (track, step) of open popup
 }
 
 impl Default for SequencerState {
@@ -73,6 +83,7 @@ impl Default for SequencerState {
             tracks: std::array::from_fn(|_| TrackStrip::default()),
             playing_step: None,
             drag_painting: None,
+            pitch_popup: None,
         }
     }
 }
@@ -230,6 +241,15 @@ impl SequencerState {
             self.drag_painting = None;
         }
 
+        // Right-click to open pitch popup
+        if grid_response.secondary_clicked() {
+            if let Some(pos) = grid_response.interact_pointer_pos() {
+                if let Some((track, step)) = Self::hit_test_cell(pos - origin) {
+                    self.pitch_popup = Some((track, step));
+                }
+            }
+        }
+
         // --- Header row ---
         for step in 0..NUM_STEPS {
             let x = step_x(step);
@@ -291,7 +311,68 @@ impl SequencerState {
                     };
 
                     painter.rect_filled(rect, 3.0, bg);
+
+                    // Show pitch label on enabled cells
+                    if enabled_now {
+                        let pitches = WesternPitch::all_pitches();
+                        let pitch_idx = self.tracks[track_idx].steps[step_idx].pitch as usize;
+                        let pitch = pitches[pitch_idx.min(11)];
+                        painter.text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            format!("{}", pitch),
+                            egui::FontId::proportional(10.0),
+                            Color32::WHITE,
+                        );
+                    }
                 }
+            }
+        }
+
+        // --- Pitch popup ---
+        if let Some((popup_track, popup_step)) = self.pitch_popup {
+            let popup_id = egui::Id::new("pitch_popup");
+            let cell_x = step_x(popup_step);
+            let cell_y = track_y(popup_track);
+            let pivot = pos2(cell_x, cell_y + STEP_SIZE);
+
+            let mut close_popup = false;
+
+            egui::Area::new(popup_id)
+                .fixed_pos(pivot)
+                .order(egui::Order::Foreground)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        let pitches = WesternPitch::all_pitches();
+                        for p in &pitches {
+                            let label = format!("{}", p);
+                            let current = self.tracks[popup_track].steps[popup_step].pitch;
+                            let is_selected = p.get_pitch_index() == current;
+                            if ui.selectable_label(is_selected, &label).clicked() {
+                                let new_pitch = p.get_pitch_index();
+                                self.tracks[popup_track].steps[popup_step].pitch = new_pitch;
+                                changes.push(EffectChange {
+                                    update: ParameterUpdate::SequencerStepPitch {
+                                        track: popup_track as u8,
+                                        step: popup_step as u8,
+                                        pitch: new_pitch,
+                                    },
+                                    description: format!(
+                                        "T{}:{} → {}",
+                                        popup_track + 1,
+                                        popup_step + 1,
+                                        label
+                                    ),
+                                });
+                                close_popup = true;
+                            }
+                        }
+                    });
+                });
+
+            // Close on left-click outside
+            if close_popup || grid_response.clicked() {
+                self.pitch_popup = None;
             }
         }
     }
@@ -300,12 +381,13 @@ impl SequencerState {
 
     fn render_mixer(&mut self, ui: &mut egui::Ui, changes: &mut Vec<EffectChange>) {
         egui::Grid::new("mixer_grid")
-            .num_columns(4)
+            .num_columns(5)
             .spacing(vec2(8.0, 4.0))
             .show(ui, |ui| {
                 // Header row — use add_sized with same dimensions as controls
                 ui.add_sized(vec2(80.0, 18.0), egui::Label::new(egui::RichText::new("Vol").strong()));
                 ui.add_sized(vec2(70.0, 18.0), egui::Label::new(egui::RichText::new("Pan").strong()));
+                ui.add_sized(vec2(36.0, 18.0), egui::Label::new(egui::RichText::new("Oct").strong()));
                 ui.add_sized(vec2(22.0, 18.0), egui::Label::new(egui::RichText::new("M").strong()));
                 ui.add_sized(vec2(22.0, 18.0), egui::Label::new(egui::RichText::new("S").strong()));
                 ui.end_row();
@@ -345,6 +427,24 @@ impl SequencerState {
                                 pan: track.pan,
                             },
                             description: format!("T{} pan → {:.2}", track_idx + 1, track.pan),
+                        });
+                    }
+
+                    // Octave control
+                    let before_oct = track.octave;
+                    let mut oct_val = track.octave as i32;
+                    ui.add_sized(
+                        vec2(36.0, 18.0),
+                        egui::DragValue::new(&mut oct_val).range(1..=8).speed(0.1),
+                    );
+                    track.octave = oct_val.clamp(1, 8) as u8;
+                    if track.octave != before_oct {
+                        changes.push(EffectChange {
+                            update: ParameterUpdate::TrackOctave {
+                                track: track_idx as u8,
+                                octave: track.octave,
+                            },
+                            description: format!("T{} oct → {}", track_idx + 1, track.octave),
                         });
                     }
 

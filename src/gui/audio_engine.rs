@@ -3,6 +3,7 @@ use ringbuf::{HeapConsumer, HeapProducer};
 
 use crate::audio_gen::oscillator::{self, OscillatorTables, Waveform};
 use crate::common::constants::SAMPLE_RATE;
+use crate::note::constants::PITCH_TO_FREQ_HZ;
 use crate::effect::chorus::ChorusBuilder;
 use crate::effect::delay::DelayBuilder;
 use crate::effect::equalizer::{Equalizer, default_equalizer};
@@ -21,6 +22,14 @@ const NUM_CHAINS: usize = 8;
 const NUM_TRACKS: usize = 8;
 const NUM_STEPS: usize = 16;
 const MAX_UPDATES_PER_CALLBACK: usize = 32;
+const TABLE_SIZE: usize = 1024; // Must match oscillator wavetable size
+
+fn table_lookup(table: &[f32], phase: f64) -> f32 {
+    let index = (phase as usize) % TABLE_SIZE;
+    let frac = phase.fract() as f32;
+    let next_index = (index + 1) % TABLE_SIZE;
+    table[index] + frac * (table[next_index] - table[index])
+}
 
 // --- Effect chain types for real-time processing ---
 
@@ -198,7 +207,6 @@ fn build_live_effects(instances: &[EffectInstance]) -> (Vec<LiveEffect>, Vec<boo
 
 struct ChainVoice {
     waveforms: Vec<Waveform>,
-    frequency: f32,
     level: f32,
 }
 
@@ -206,7 +214,6 @@ impl Default for ChainVoice {
     fn default() -> Self {
         Self {
             waveforms: Vec::new(),
-            frequency: 440.0,
             level: 1.0,
         }
     }
@@ -215,10 +222,12 @@ impl Default for ChainVoice {
 struct TrackState {
     steps: [bool; NUM_STEPS],
     velocities: [f32; NUM_STEPS],
+    pitches: [u8; NUM_STEPS],
     volume: f32,
     pan: f32,
     mute: bool,
     solo: bool,
+    octave: u8,
 }
 
 impl Default for TrackState {
@@ -226,10 +235,12 @@ impl Default for TrackState {
         Self {
             steps: [false; NUM_STEPS],
             velocities: [0.8; NUM_STEPS],
+            pitches: [0; NUM_STEPS],
             volume: 0.8,
             pan: 0.0,
             mute: false,
             solo: false,
+            octave: 3,
         }
     }
 }
@@ -238,6 +249,7 @@ struct NoteState {
     active: bool,
     sample_start: u64,
     step_duration_samples: u64,
+    frequency: f32,
 }
 
 impl Default for NoteState {
@@ -246,6 +258,7 @@ impl Default for NoteState {
             active: false,
             sample_start: 0,
             step_duration_samples: 0,
+            frequency: 0.0,
         }
     }
 }
@@ -266,6 +279,9 @@ impl Default for EnvelopeParams {
     }
 }
 
+/// Number of samples for the global fade-out when transport stops (~5.8ms at 44.1kHz).
+const STOP_FADE_SAMPLES: u64 = 256;
+
 struct SynthState {
     is_playing: bool,
     tempo: f32,
@@ -284,6 +300,10 @@ struct SynthState {
     effect_chains: [EffectChainState; NUM_CHAINS],
     equalizers: [Equalizer; NUM_CHAINS],
     eq_enabled: [bool; NUM_CHAINS],
+    track_phases: [f64; NUM_TRACKS],
+
+    /// When > 0, a stop-fade is in progress. Counts down from STOP_FADE_SAMPLES to 0.
+    stop_fade_remaining: u64,
 }
 
 impl SynthState {
@@ -307,6 +327,8 @@ impl SynthState {
             effect_chains: Default::default(),
             equalizers: std::array::from_fn(|_| default_equalizer()),
             eq_enabled: [false; NUM_CHAINS],
+            track_phases: [0.0; NUM_TRACKS],
+            stop_fade_remaining: 0,
         }
     }
 
@@ -331,6 +353,8 @@ impl SynthState {
 
     /// Compute a simple ADSR envelope value for a note.
     /// The envelope positions (attack, decay, sustain) are fractions of the step duration.
+    /// Includes an anti-click fade at the end to guarantee a smooth transition to zero,
+    /// preventing clicks caused by the note being replaced before its final sample renders.
     fn envelope_value(&self, note: &NoteState, track_idx: usize) -> f32 {
         if !note.active || note.step_duration_samples == 0 {
             return 0.0;
@@ -343,25 +367,49 @@ impl SynthState {
         let dec = self.envelopes[track_idx].decay;
         let sus = self.envelopes[track_idx].sustain;
 
-        if t < atk {
+        let sustain_level = 0.7_f32;
+
+        let base = if t < atk {
             // Attack: ramp 0 -> 1
             if atk > 0.0 { t / atk } else { 1.0 }
         } else if t < dec {
-            // Decay: hold at 1.0 (peak) — decay point determines when sustain level begins
-            1.0
+            // Decay: ramp from 1.0 down to sustain level
+            let decay_len = dec - atk;
+            if decay_len > 0.0 {
+                let decay_t = (t - atk) / decay_len;
+                1.0 + (sustain_level - 1.0) * decay_t
+            } else {
+                sustain_level
+            }
         } else if t < sus {
-            // Sustain: hold at sustain level (0.7 default)
-            0.7
+            // Sustain: hold at sustain level
+            sustain_level
         } else {
             // Release: ramp from sustain level down to 0
             let release_len = 1.0 - sus;
             if release_len > 0.0 {
                 let release_t = (t - sus) / release_len;
-                0.7 * (1.0 - release_t)
+                sustain_level * (1.0 - release_t)
             } else {
                 0.0
             }
-        }
+        };
+
+        // Anti-click fade: guarantee the signal reaches zero at the note boundary.
+        // The step transition replaces the note before its final t=1.0 frame renders,
+        // leaving a residual amplitude that hard-cuts to zero. This fade smoothly
+        // brings the output to zero over the last ~5.8ms (256 samples at 44.1kHz),
+        // capped at 25% of step duration to avoid dominating short notes.
+        const ANTI_CLICK_SAMPLES: f32 = 256.0;
+        let fade_window = ANTI_CLICK_SAMPLES.min(duration * 0.25);
+        let remaining = (duration - elapsed).max(0.0);
+        let end_fade = if remaining < fade_window {
+            remaining / fade_window
+        } else {
+            1.0
+        };
+
+        base * end_fade
     }
 
     fn drain_updates(&mut self, consumer: &mut HeapConsumer<ParameterUpdate>) {
@@ -376,15 +424,14 @@ impl SynthState {
                     self.step_sample_counter = 0.0;
                     self.current_step = 0;
                     self.sample_clock = 0;
+                    self.track_phases = [0.0; NUM_TRACKS];
                     // Activate notes for step 0
                     self.activate_notes_for_current_step();
                 }
                 ParameterUpdate::TransportStop => {
-                    self.is_playing = false;
+                    // Start a fade-out instead of hard-cutting to prevent clicks
+                    self.stop_fade_remaining = STOP_FADE_SAMPLES;
                     self.current_step = 0;
-                    for note in self.active_notes.iter_mut() {
-                        note.active = false;
-                    }
                 }
                 ParameterUpdate::TempoChange(t) => {
                     self.tempo = t;
@@ -394,10 +441,8 @@ impl SynthState {
                         self.chains[chain as usize].waveforms = oscillators;
                     }
                 }
-                ParameterUpdate::OscillatorChainFrequency { chain, frequency } => {
-                    if (chain as usize) < NUM_CHAINS {
-                        self.chains[chain as usize].frequency = frequency;
-                    }
+                ParameterUpdate::OscillatorChainFrequency { .. } => {
+                    // Frequency is now per-step via pitch+octave, ignore legacy updates
                 }
                 ParameterUpdate::OscillatorChainLevel { chain, level } => {
                     if (chain as usize) < NUM_CHAINS {
@@ -422,6 +467,16 @@ impl SynthState {
                 ParameterUpdate::TrackMute { track, muted } => {
                     if (track as usize) < NUM_TRACKS {
                         self.tracks[track as usize].mute = muted;
+                    }
+                }
+                ParameterUpdate::SequencerStepPitch { track, step, pitch } => {
+                    if (track as usize) < NUM_TRACKS && (step as usize) < NUM_STEPS {
+                        self.tracks[track as usize].pitches[step as usize] = pitch;
+                    }
+                }
+                ParameterUpdate::TrackOctave { track, octave } => {
+                    if (track as usize) < NUM_TRACKS {
+                        self.tracks[track as usize].octave = octave;
                     }
                 }
                 ParameterUpdate::EnvelopeAttack { track, value } => {
@@ -476,10 +531,15 @@ impl SynthState {
         let step_samples = self.samples_per_step() as u64;
         for track_idx in 0..NUM_TRACKS {
             if self.tracks[track_idx].steps[self.current_step] {
+                let pitch = self.tracks[track_idx].pitches[self.current_step];
+                let octave = self.tracks[track_idx].octave;
+                let freq_idx = (octave as usize) * 12 + (pitch as usize);
+                let frequency = PITCH_TO_FREQ_HZ[freq_idx.min(127)] as f32;
                 self.active_notes[track_idx] = NoteState {
                     active: true,
                     sample_start: self.sample_clock,
                     step_duration_samples: step_samples,
+                    frequency,
                 };
             } else {
                 self.active_notes[track_idx].active = false;
@@ -489,6 +549,21 @@ impl SynthState {
 
     /// Generate one stereo frame of audio.
     fn generate_frame(&mut self, feedback: &mut HeapProducer<AudioFeedback>) -> (f32, f32) {
+        // Handle stop-fade: continue rendering with a linear fade-out, then go silent
+        if self.stop_fade_remaining > 0 {
+            self.stop_fade_remaining -= 1;
+            if self.stop_fade_remaining == 0 {
+                // Fade complete — fully stop playback and deactivate notes
+                self.is_playing = false;
+                for note in self.active_notes.iter_mut() {
+                    note.active = false;
+                }
+                self.sample_clock += 1;
+                return (0.0, 0.0);
+            }
+            // Fall through to normal rendering; apply stop_fade_gain at the end
+        }
+
         if !self.is_playing {
             self.sample_clock += 1;
             return (0.0, 0.0);
@@ -520,44 +595,27 @@ impl SynthState {
                 continue;
             }
 
+            let freq = note.frequency;
+
             let chain = &self.chains[track_idx];
             if chain.waveforms.is_empty() {
                 continue;
             }
+
+            // Use running phase accumulator for continuous waveform across notes.
+            // Phase advances by freq * TABLE_SIZE / SAMPLE_RATE each sample,
+            // so frequency changes between steps produce no phase discontinuity.
+            let phase = self.track_phases[track_idx];
 
             // Generate sample from chain oscillators (additive mix)
             let mut sample = 0.0_f32;
             let osc_count = chain.waveforms.len() as f32;
             for waveform in &chain.waveforms {
                 let osc_sample = match waveform {
-                    Waveform::Sine => {
-                        oscillator::get_sample(
-                            &self.osc_tables.sine_table,
-                            chain.frequency,
-                            self.sample_clock,
-                        )
-                    }
-                    Waveform::Saw => {
-                        oscillator::get_sample(
-                            &self.osc_tables.saw_table,
-                            chain.frequency,
-                            self.sample_clock,
-                        )
-                    }
-                    Waveform::Square => {
-                        oscillator::get_sample(
-                            &self.osc_tables.square_table,
-                            chain.frequency,
-                            self.sample_clock,
-                        )
-                    }
-                    Waveform::Triangle => {
-                        oscillator::get_sample(
-                            &self.osc_tables.triangle_table,
-                            chain.frequency,
-                            self.sample_clock,
-                        )
-                    }
+                    Waveform::Sine => table_lookup(&self.osc_tables.sine_table, phase),
+                    Waveform::Saw => table_lookup(&self.osc_tables.saw_table, phase),
+                    Waveform::Square => table_lookup(&self.osc_tables.square_table, phase),
+                    Waveform::Triangle => table_lookup(&self.osc_tables.triangle_table, phase),
                     Waveform::Noise | Waveform::GaussianNoise => {
                         oscillator::get_gaussian_noise_sample()
                     }
@@ -568,6 +626,10 @@ impl SynthState {
             if osc_count > 0.0 {
                 sample /= osc_count;
             }
+
+            // Advance phase accumulator
+            let delta = freq as f64 * TABLE_SIZE as f64 / SAMPLE_RATE as f64;
+            self.track_phases[track_idx] = (self.track_phases[track_idx] + delta) % TABLE_SIZE as f64;
 
             // Apply envelope
             let env = self.envelope_value(note, track_idx);
@@ -607,6 +669,13 @@ impl SynthState {
         }
 
         self.sample_clock += 1;
+
+        // Apply stop-fade gain if transport is stopping
+        if self.stop_fade_remaining > 0 {
+            let fade_gain = self.stop_fade_remaining as f32 / STOP_FADE_SAMPLES as f32;
+            left *= fade_gain;
+            right *= fade_gain;
+        }
 
         // Clamp to prevent distortion
         (left.clamp(-1.0, 1.0), right.clamp(-1.0, 1.0))

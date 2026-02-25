@@ -138,12 +138,6 @@ impl RoscoGuiApp {
                 },
             );
             let _ = self.audio_bridge.send_parameter_update(
-                ParameterUpdate::OscillatorChainFrequency {
-                    chain: i as u8,
-                    frequency: chain.frequency,
-                },
-            );
-            let _ = self.audio_bridge.send_parameter_update(
                 ParameterUpdate::OscillatorChainLevel {
                     chain: i as u8,
                     level: self.oscillator_chains.mixer_levels[i],
@@ -159,6 +153,15 @@ impl RoscoGuiApp {
                             track: track_idx as u8,
                             step: step_idx as u8,
                             enabled: true,
+                        },
+                    );
+                }
+                if step.pitch != 0 {
+                    let _ = self.audio_bridge.send_parameter_update(
+                        ParameterUpdate::SequencerStepPitch {
+                            track: track_idx as u8,
+                            step: step_idx as u8,
+                            pitch: step.pitch,
                         },
                     );
                 }
@@ -180,6 +183,14 @@ impl RoscoGuiApp {
                     ParameterUpdate::TrackMute {
                         track: track_idx as u8,
                         muted: true,
+                    },
+                );
+            }
+            if track.octave != 3 {
+                let _ = self.audio_bridge.send_parameter_update(
+                    ParameterUpdate::TrackOctave {
+                        track: track_idx as u8,
+                        octave: track.octave,
                     },
                 );
             }
@@ -515,10 +526,10 @@ impl RoscoGuiApp {
 fn is_continuous_update(update: &ParameterUpdate) -> bool {
     matches!(
         update,
-        ParameterUpdate::OscillatorChainFrequency { .. }
-            | ParameterUpdate::OscillatorChainLevel { .. }
+        ParameterUpdate::OscillatorChainLevel { .. }
             | ParameterUpdate::TrackVolume { .. }
             | ParameterUpdate::TrackPan { .. }
+            | ParameterUpdate::TrackOctave { .. }
             | ParameterUpdate::EnvelopeAttack { .. }
             | ParameterUpdate::EnvelopeDecay { .. }
             | ParameterUpdate::EnvelopeSustain { .. }

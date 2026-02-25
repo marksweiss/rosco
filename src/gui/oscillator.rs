@@ -21,7 +21,6 @@ const CHAIN_SLOT_SIZE: egui::Vec2 = vec2(52.0, 40.0);
 pub struct OscillatorChain {
     pub oscillators: Vec<Waveform>,
     pub active_index: Option<usize>,
-    pub frequency: f32,
 }
 
 impl Default for OscillatorChain {
@@ -29,7 +28,6 @@ impl Default for OscillatorChain {
         Self {
             oscillators: Vec::new(),
             active_index: None,
-            frequency: 440.0,
         }
     }
 }
@@ -265,32 +263,6 @@ impl OscillatorChainsState {
         }
 
         ui.add_space(6.0);
-
-        // --- Frequency slider (per-chain) ---
-        let freq = self.chains[chain_idx].frequency;
-        ui.label(format!("Frequency: {:.1} Hz", freq));
-        let freq_before = self.chains[chain_idx].frequency;
-        ui.add(
-            egui::Slider::new(&mut self.chains[chain_idx].frequency, 20.0..=20000.0)
-                .logarithmic(true)
-                .clamping(egui::SliderClamping::Always)
-                .text("Hz"),
-        );
-        if (self.chains[chain_idx].frequency - freq_before).abs() > 0.01 {
-            changes.push(EffectChange {
-                update: ParameterUpdate::OscillatorChainFrequency {
-                    chain: chain_idx as u8,
-                    frequency: self.chains[chain_idx].frequency,
-                },
-                description: format!(
-                    "Chain {} freq {:.1} Hz",
-                    chain_idx + 1,
-                    self.chains[chain_idx].frequency
-                ),
-            });
-        }
-
-        ui.add_space(4.0);
 
         // --- Volume slider (global) ---
         ui.label(format!("Volume: {:.2}", self.volume));

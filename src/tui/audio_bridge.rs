@@ -78,11 +78,13 @@ pub enum ParameterUpdate {
 
     // Sequencer
     SequencerStep { track: u8, step: u8, enabled: bool },
+    SequencerStepPitch { track: u8, step: u8, pitch: u8 },
 
     // Track
     TrackVolume { track: u8, volume: f32 },
     TrackPan { track: u8, pan: f32 },
     TrackMute { track: u8, muted: bool },
+    TrackOctave { track: u8, octave: u8 },
 
     // Transport
     TransportPlay,
