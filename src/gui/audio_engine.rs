@@ -5,6 +5,7 @@ use crate::audio_gen::oscillator::{self, OscillatorTables, Waveform};
 use crate::common::constants::SAMPLE_RATE;
 use crate::effect::chorus::ChorusBuilder;
 use crate::effect::delay::DelayBuilder;
+use crate::effect::equalizer::{Equalizer, default_equalizer};
 use crate::effect::flanger::FlangerBuilder;
 use crate::effect::lfo::{LFOBuilder, LFO};
 use crate::effect::tremolo::TremoloBuilder;
@@ -19,6 +20,7 @@ use super::effect_chains::EffectInstance;
 const NUM_CHAINS: usize = 8;
 const NUM_TRACKS: usize = 8;
 const NUM_STEPS: usize = 16;
+const MAX_UPDATES_PER_CALLBACK: usize = 32;
 
 // --- Effect chain types for real-time processing ---
 
@@ -280,6 +282,8 @@ struct SynthState {
 
     osc_tables: OscillatorTables,
     effect_chains: [EffectChainState; NUM_CHAINS],
+    equalizers: [Equalizer; NUM_CHAINS],
+    eq_enabled: [bool; NUM_CHAINS],
 }
 
 impl SynthState {
@@ -301,6 +305,8 @@ impl SynthState {
             master_volume: 0.75,
             osc_tables: OscillatorTables::new(),
             effect_chains: Default::default(),
+            equalizers: std::array::from_fn(|_| default_equalizer()),
+            eq_enabled: [false; NUM_CHAINS],
         }
     }
 
@@ -359,7 +365,11 @@ impl SynthState {
     }
 
     fn drain_updates(&mut self, consumer: &mut HeapConsumer<ParameterUpdate>) {
-        while let Some(update) = consumer.pop() {
+        for _ in 0..MAX_UPDATES_PER_CALLBACK {
+            let update = match consumer.pop() {
+                Some(u) => u,
+                None => break,
+            };
             match update {
                 ParameterUpdate::TransportPlay => {
                     self.is_playing = true;
@@ -432,18 +442,29 @@ impl SynthState {
                 ParameterUpdate::OscillatorVolume(v) => {
                     self.master_volume = v;
                 }
-                ParameterUpdate::EffectChainUpdate { chain, effects_json } => {
+                ParameterUpdate::EffectChainUpdate { chain, instances } => {
                     if (chain as usize) < NUM_CHAINS {
-                        if let Ok(instances) = serde_json::from_str::<Vec<EffectInstance>>(&effects_json) {
-                            let (effects, enabled) = build_live_effects(&instances);
-                            self.effect_chains[chain as usize].effects = effects;
-                            self.effect_chains[chain as usize].enabled = enabled;
-                        }
+                        let (effects, enabled) = build_live_effects(&instances);
+                        self.effect_chains[chain as usize].effects = effects;
+                        self.effect_chains[chain as usize].enabled = enabled;
                     }
                 }
                 ParameterUpdate::EffectChainDryWet { chain, dry_wet } => {
                     if (chain as usize) < NUM_CHAINS {
                         self.effect_chains[chain as usize].dry_wet = dry_wet;
+                    }
+                }
+                ParameterUpdate::EqualizerBandGain { chain, band, gain_db } => {
+                    if (chain as usize) < NUM_CHAINS {
+                        self.equalizers[chain as usize].set_band_gain(band, gain_db);
+                    }
+                }
+                ParameterUpdate::EqualizerBandFreq { chain, band, freq } => {
+                    let _ = (chain, band, freq); // Future: update center frequency
+                }
+                ParameterUpdate::EqualizerEnabled { chain, enabled } => {
+                    if (chain as usize) < NUM_CHAINS {
+                        self.eq_enabled[chain as usize] = enabled;
                     }
                 }
                 _ => {}
@@ -564,6 +585,11 @@ impl SynthState {
                     }
                 }
                 sample = dry_sample * (1.0 - ec.dry_wet) + wet_sample * ec.dry_wet;
+            }
+
+            // Apply per-chain equalizer
+            if self.eq_enabled[track_idx] {
+                sample = self.equalizers[track_idx].apply_effect(sample, self.sample_clock as f32);
             }
 
             // Apply velocity, track volume, chain level, master volume

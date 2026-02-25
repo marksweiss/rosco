@@ -71,9 +71,10 @@ pub enum ParameterUpdate {
     ChorusVoiceGain { voice: usize, gain: f32 },
     ChorusVoiceDelay { voice: usize, delay: f32 },
 
-    // Equalizer
-    EqualizerBandGain { band: usize, gain_db: f32 },
-    EqualizerBandFreq { band: usize, freq: f32 },
+    // Equalizer (per-chain)
+    EqualizerBandGain { chain: u8, band: usize, gain_db: f32 },
+    EqualizerBandFreq { chain: u8, band: usize, freq: f32 },
+    EqualizerEnabled { chain: u8, enabled: bool },
 
     // Sequencer
     SequencerStep { track: u8, step: u8, enabled: bool },
@@ -89,7 +90,7 @@ pub enum ParameterUpdate {
     TempoChange(f32),
 
     // Effect chains
-    EffectChainUpdate { chain: u8, effects_json: String },
+    EffectChainUpdate { chain: u8, instances: Vec<crate::gui::effect_chains::EffectInstance> },
     EffectChainDryWet { chain: u8, dry_wet: f32 },
 }
 
@@ -123,7 +124,7 @@ impl AudioBridge {
     pub fn new() -> Result<Self, TuiError> {
         println!("Creating parameter ring buffer...");
         // Create ring buffers for lock-free communication
-        let param_rb = HeapRb::<ParameterUpdate>::new(1024);
+        let param_rb = HeapRb::<ParameterUpdate>::new(4096);
         let (param_producer, param_consumer) = param_rb.split();
         
         println!("Creating feedback ring buffer...");

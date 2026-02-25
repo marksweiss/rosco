@@ -200,11 +200,10 @@ impl EffectChainsState {
     }
 
     fn emit_chain_update(chain_idx: usize, chain: &EffectChain) -> EffectChange {
-        let json = serde_json::to_string(&chain.effects).unwrap_or_default();
         EffectChange {
             update: ParameterUpdate::EffectChainUpdate {
                 chain: chain_idx as u8,
-                effects_json: json,
+                instances: chain.effects.clone(),
             },
             description: format!("Effect chain {} updated", chain_idx + 1),
         }

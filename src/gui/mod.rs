@@ -1,7 +1,7 @@
 mod audio_engine;
 mod config;
 mod dsl_bridge;
-mod effect_chains;
+pub(crate) mod effect_chains;
 mod effects;
 mod envelope;
 mod oscillator;
@@ -19,7 +19,7 @@ use crate::tui::app::SynthParameters;
 use audio_engine::AudioEngine;
 use config::{GuiConfig, SessionState};
 use effect_chains::EffectChainsState;
-use effects::EffectsRackState;
+use effects::{EffectsRackState, EqualizersState};
 use envelope::EnvelopesState;
 use oscillator::OscillatorChainsState;
 use sequencer::SequencerState;
@@ -36,6 +36,7 @@ pub struct RoscoGuiApp {
     oscillator_chains: OscillatorChainsState,
     envelopes: EnvelopesState,
     effects: EffectsRackState,
+    equalizers: EqualizersState,
     effect_chains: EffectChainsState,
     sequencer: SequencerState,
     transport: TransportState,
@@ -50,6 +51,7 @@ pub struct RoscoGuiApp {
     cpu_usage: f32,
     buffer_health: f32,
     status_message: String,
+    update_frame_counter: u32,
 }
 
 impl RoscoGuiApp {
@@ -79,6 +81,7 @@ impl RoscoGuiApp {
             oscillator_chains: OscillatorChainsState::default(),
             envelopes: EnvelopesState::default(),
             effects: EffectsRackState::default(),
+            equalizers: EqualizersState::default(),
             effect_chains: EffectChainsState::default(),
             sequencer: SequencerState::default(),
             transport: TransportState::default(),
@@ -93,6 +96,7 @@ impl RoscoGuiApp {
             cpu_usage: 0.0,
             buffer_health: 1.0,
             status_message: "Ready".to_string(),
+            update_frame_counter: 0,
         };
 
         // Send the initial GUI state to the audio engine
@@ -109,6 +113,10 @@ impl RoscoGuiApp {
             Ok(()) => self.status_message = description,
             Err(e) => self.status_message = format!("Error: {}", e),
         }
+    }
+
+    fn should_send_continuous_update(&self) -> bool {
+        self.update_frame_counter % 3 == 0
     }
 
     /// Push all current GUI state to the audio engine so it starts in sync.
@@ -192,11 +200,10 @@ impl RoscoGuiApp {
         // Effect chains
         for (i, chain) in self.effect_chains.chains.iter().enumerate() {
             if !chain.effects.is_empty() {
-                let json = serde_json::to_string(&chain.effects).unwrap_or_default();
                 let _ = self.audio_bridge.send_parameter_update(
                     ParameterUpdate::EffectChainUpdate {
                         chain: i as u8,
-                        effects_json: json,
+                        instances: chain.effects.clone(),
                     },
                 );
             }
@@ -206,6 +213,20 @@ impl RoscoGuiApp {
                     dry_wet: self.effect_chains.dry_wet[i],
                 },
             );
+        }
+        // Equalizers (per-chain)
+        for (i, eq) in self.equalizers.equalizers.iter().enumerate() {
+            let chain = i as u8;
+            let _ = self.audio_bridge.send_parameter_update(
+                ParameterUpdate::EqualizerEnabled { chain, enabled: eq.enabled },
+            );
+            for (band, &gain) in eq.gains.iter().enumerate() {
+                if gain.abs() > 0.001 {
+                    let _ = self.audio_bridge.send_parameter_update(
+                        ParameterUpdate::EqualizerBandGain { chain, band, gain_db: gain },
+                    );
+                }
+            }
         }
     }
 
@@ -244,9 +265,11 @@ impl RoscoGuiApp {
         let theme = self.theme.clone();
         let changes = self.oscillator_chains.render(ui, &theme);
         for change in changes {
-            match self.audio_bridge.send_parameter_update(change.update) {
-                Ok(()) => self.status_message = change.description,
-                Err(e) => self.status_message = format!("Error: {}", e),
+            if !is_continuous_update(&change.update) || self.should_send_continuous_update() {
+                match self.audio_bridge.send_parameter_update(change.update) {
+                    Ok(()) => self.status_message = change.description,
+                    Err(e) => self.status_message = format!("Error: {}", e),
+                }
             }
         }
     }
@@ -255,17 +278,19 @@ impl RoscoGuiApp {
         let theme = self.theme.clone();
         let selected = self.envelopes.selected;
         if let Some(msg) = self.envelopes.render(ui, &theme) {
-            let env = &self.envelopes.envelopes[selected];
-            let track = selected as u8;
-            let _ = self.audio_bridge.send_parameter_update(
-                ParameterUpdate::EnvelopeAttack { track, value: env.attack.0 },
-            );
-            let _ = self.audio_bridge.send_parameter_update(
-                ParameterUpdate::EnvelopeDecay { track, value: env.decay.0 },
-            );
-            let _ = self.audio_bridge.send_parameter_update(
-                ParameterUpdate::EnvelopeSustain { track, value: env.sustain.0 },
-            );
+            if self.should_send_continuous_update() {
+                let env = &self.envelopes.envelopes[selected];
+                let track = selected as u8;
+                let _ = self.audio_bridge.send_parameter_update(
+                    ParameterUpdate::EnvelopeAttack { track, value: env.attack.0 },
+                );
+                let _ = self.audio_bridge.send_parameter_update(
+                    ParameterUpdate::EnvelopeDecay { track, value: env.decay.0 },
+                );
+                let _ = self.audio_bridge.send_parameter_update(
+                    ParameterUpdate::EnvelopeSustain { track, value: env.sustain.0 },
+                );
+            }
             self.status_message = msg;
         }
     }
@@ -276,20 +301,24 @@ impl RoscoGuiApp {
             let theme = self.theme.clone();
             let changes = self.effect_chains.render(&mut cols[0], &theme);
             for change in changes {
-                match self.audio_bridge.send_parameter_update(change.update) {
-                    Ok(()) => self.status_message = change.description,
-                    Err(e) => self.status_message = format!("Error: {}", e),
+                if !is_continuous_update(&change.update) || self.should_send_continuous_update() {
+                    match self.audio_bridge.send_parameter_update(change.update) {
+                        Ok(()) => self.status_message = change.description,
+                        Err(e) => self.status_message = format!("Error: {}", e),
+                    }
                 }
             }
 
-            // Right column: equalizer always visible
+            // Right column: per-chain equalizer with tab bar
             cols[1].heading("Equalizer");
             cols[1].add_space(4.0);
-            let changes = self.effects.render_equalizer_panel(&mut cols[1]);
+            let changes = self.equalizers.render(&mut cols[1]);
             for change in changes {
-                match self.audio_bridge.send_parameter_update(change.update) {
-                    Ok(()) => self.status_message = change.description,
-                    Err(e) => self.status_message = format!("Error: {}", e),
+                if !is_continuous_update(&change.update) || self.should_send_continuous_update() {
+                    match self.audio_bridge.send_parameter_update(change.update) {
+                        Ok(()) => self.status_message = change.description,
+                        Err(e) => self.status_message = format!("Error: {}", e),
+                    }
                 }
             }
         });
@@ -309,9 +338,11 @@ impl RoscoGuiApp {
         let theme = self.theme.clone();
         let changes = self.sequencer.render(ui, &theme);
         for change in changes {
-            match self.audio_bridge.send_parameter_update(change.update) {
-                Ok(()) => self.status_message = change.description,
-                Err(e) => self.status_message = format!("Error: {}", e),
+            if !is_continuous_update(&change.update) || self.should_send_continuous_update() {
+                match self.audio_bridge.send_parameter_update(change.update) {
+                    Ok(()) => self.status_message = change.description,
+                    Err(e) => self.status_message = format!("Error: {}", e),
+                }
             }
         }
     }
@@ -408,6 +439,7 @@ impl RoscoGuiApp {
             tempo: self.transport.tempo,
             envelopes: self.envelopes.to_serializable(),
             effects: self.effects.clone(),
+            equalizers: self.equalizers.clone(),
             effect_chains: self.effect_chains.clone(),
             tracks: self.sequencer.tracks.to_vec(),
         };
@@ -425,6 +457,7 @@ impl RoscoGuiApp {
                 Ok(result) => {
                     self.envelopes = result.envelopes;
                     self.effects = result.effects;
+                    self.equalizers = result.equalizers;
                     self.sequencer = result.sequencer;
                     self.transport.tempo = result.tempo;
                     self.config.add_recent_file(&path_str);
@@ -441,6 +474,7 @@ impl RoscoGuiApp {
         let dsl_text = dsl_bridge::export_dsl_string(
             &self.envelopes,
             &self.effects,
+            &self.equalizers,
             &self.sequencer,
             self.transport.tempo,
         );
@@ -478,8 +512,27 @@ impl RoscoGuiApp {
     }
 }
 
+fn is_continuous_update(update: &ParameterUpdate) -> bool {
+    matches!(
+        update,
+        ParameterUpdate::OscillatorChainFrequency { .. }
+            | ParameterUpdate::OscillatorChainLevel { .. }
+            | ParameterUpdate::TrackVolume { .. }
+            | ParameterUpdate::TrackPan { .. }
+            | ParameterUpdate::EnvelopeAttack { .. }
+            | ParameterUpdate::EnvelopeDecay { .. }
+            | ParameterUpdate::EnvelopeSustain { .. }
+            | ParameterUpdate::EqualizerBandGain { .. }
+            | ParameterUpdate::EffectChainDryWet { .. }
+            | ParameterUpdate::OscillatorVolume(_)
+            | ParameterUpdate::EffectChainUpdate { .. }
+    )
+}
+
 impl eframe::App for RoscoGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.update_frame_counter = self.update_frame_counter.wrapping_add(1);
+
         // Process keyboard shortcuts
         if let Some(action) = shortcuts::process_shortcuts(ctx) {
             self.dispatch_shortcut(action);

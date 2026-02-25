@@ -14,6 +14,7 @@ pub mod meter;
 pub mod dsl;
 pub mod compositions;
 pub mod tui;
+pub mod gui;
 
 use crate::compositions::dsl_1;
 use crate::compositions::computer_punk_001;

@@ -38,6 +38,15 @@ impl BiquadState {
         self.z1 = 0.0;
         self.z2 = 0.0;
     }
+
+    fn update_coefficients(&mut self, new: &BiquadState) {
+        self.b0 = new.b0;
+        self.b1 = new.b1;
+        self.b2 = new.b2;
+        self.a1 = new.a1;
+        self.a2 = new.a2;
+        // z1, z2 intentionally preserved — avoids signal discontinuity
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -201,6 +210,28 @@ impl Equalizer {
         }
         output
     }
+
+    pub(crate) fn set_band_gain(&mut self, band: usize, gain_db: f32) {
+        if band >= self.num_bands {
+            return;
+        }
+        self.gains[band] = gain_db;
+        let filter_type = if band == 0 {
+            FilterType::LowShelf
+        } else if band == self.num_bands - 1 {
+            FilterType::HighShelf
+        } else {
+            FilterType::Peaking
+        };
+        let new_coeffs = compute_biquad(
+            filter_type,
+            self.sample_rate,
+            self.center_frequencies[band],
+            gain_db,
+            DEFAULT_Q,
+        );
+        self.filters[band].update_coefficients(&new_coeffs);
+    }
 }
 
 #[allow(dead_code)]
@@ -304,5 +335,113 @@ mod tests {
             .gains(vec![6.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
             .build().unwrap();
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn test_set_band_gain() {
+        let mut eq = default_equalizer();
+        eq.set_band_gain(4, 12.0);
+        assert_eq!(eq.gains[4], 12.0);
+        // Verify processing changes: feed 1kHz sine, check boosted output
+        let freq = 1000.0;
+        for i in 0..1000 {
+            let t = i as f32 / SAMPLE_RATE;
+            let sample = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.3;
+            eq.apply_effect(sample, 0.0);
+        }
+        // After settling, output should be boosted
+        let t = 1000.0 / SAMPLE_RATE;
+        let sample = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.3;
+        let output = eq.apply_effect(sample, 0.0);
+        assert!(output.abs() > sample.abs() * 0.5,
+            "Boosted band should increase signal");
+    }
+
+    #[test]
+    fn test_low_band_boost_increases_low_freq_energy() {
+        let mut eq = default_equalizer();
+        eq.set_band_gain(0, 12.0); // Boost 63Hz band
+        let freq = 63.0;
+        let num_samples = 2000;
+        // Settle the filter
+        for i in 0..num_samples {
+            let t = i as f32 / SAMPLE_RATE;
+            let sample = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.3;
+            eq.apply_effect(sample, 0.0);
+        }
+        // Measure RMS of last 500 samples
+        let mut rms_out = 0.0_f32;
+        let mut rms_in = 0.0_f32;
+        for i in num_samples..(num_samples + 500) {
+            let t = i as f32 / SAMPLE_RATE;
+            let input = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.3;
+            let output = eq.apply_effect(input, 0.0);
+            rms_in += input * input;
+            rms_out += output * output;
+        }
+        rms_in = (rms_in / 500.0).sqrt();
+        rms_out = (rms_out / 500.0).sqrt();
+        assert!(rms_out > rms_in, "Low band boost should increase 63Hz energy: out={} in={}", rms_out, rms_in);
+    }
+
+    #[test]
+    fn test_high_band_cut_reduces_high_freq_energy() {
+        let mut eq = default_equalizer();
+        eq.set_band_gain(7, -12.0); // Cut 8kHz band
+        let freq = 8000.0;
+        let num_samples = 2000;
+        for i in 0..num_samples {
+            let t = i as f32 / SAMPLE_RATE;
+            let sample = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.3;
+            eq.apply_effect(sample, 0.0);
+        }
+        let mut rms_out = 0.0_f32;
+        let mut rms_in = 0.0_f32;
+        for i in num_samples..(num_samples + 500) {
+            let t = i as f32 / SAMPLE_RATE;
+            let input = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.3;
+            let output = eq.apply_effect(input, 0.0);
+            rms_in += input * input;
+            rms_out += output * output;
+        }
+        rms_in = (rms_in / 500.0).sqrt();
+        rms_out = (rms_out / 500.0).sqrt();
+        assert!(rms_out < rms_in, "High band cut should reduce 8kHz energy: out={} in={}", rms_out, rms_in);
+    }
+
+    #[test]
+    fn test_mid_band_boost_does_not_affect_distant_freq() {
+        let mut eq = default_equalizer();
+        eq.set_band_gain(4, 12.0); // Boost 1kHz band
+        let freq = 63.0; // Very distant from 1kHz
+        let num_samples = 2000;
+        for i in 0..num_samples {
+            let t = i as f32 / SAMPLE_RATE;
+            let sample = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.3;
+            eq.apply_effect(sample, 0.0);
+        }
+        let mut rms_out = 0.0_f32;
+        let mut rms_in = 0.0_f32;
+        for i in num_samples..(num_samples + 500) {
+            let t = i as f32 / SAMPLE_RATE;
+            let input = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.3;
+            let output = eq.apply_effect(input, 0.0);
+            rms_in += input * input;
+            rms_out += output * output;
+        }
+        rms_in = (rms_in / 500.0).sqrt();
+        rms_out = (rms_out / 500.0).sqrt();
+        // Should be approximately equal (within 50% tolerance for filter overlap)
+        let ratio = rms_out / rms_in;
+        assert!(ratio > 0.5 && ratio < 2.0,
+            "Mid band boost should not drastically affect distant freq: ratio={}", ratio);
+    }
+
+    #[test]
+    fn test_set_band_gain_out_of_range() {
+        let mut eq = default_equalizer();
+        let original_gains = eq.gains.clone();
+        eq.set_band_gain(99, 6.0); // Should be no-op
+        assert_eq!(eq.gains, original_gains);
     }
 }

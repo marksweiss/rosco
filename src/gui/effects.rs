@@ -186,6 +186,113 @@ impl Default for EqualizerState {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EqualizersState {
+    pub equalizers: [EqualizerState; 8],
+    #[serde(skip)]
+    pub selected: usize,
+}
+
+impl Default for EqualizersState {
+    fn default() -> Self {
+        Self {
+            equalizers: std::array::from_fn(|_| EqualizerState::default()),
+            selected: 0,
+        }
+    }
+}
+
+impl EqualizersState {
+    pub fn render(&mut self, ui: &mut egui::Ui) -> Vec<EffectChange> {
+        let mut changes = Vec::new();
+
+        // Tab bar (1-8)
+        ui.horizontal_wrapped(|ui| {
+            for i in 0..8 {
+                if ui.selectable_label(self.selected == i, format!("{}", i + 1)).clicked() {
+                    self.selected = i;
+                }
+            }
+        });
+        ui.separator();
+
+        let chain = self.selected as u8;
+        let eq = &mut self.equalizers[self.selected];
+
+        // Enable checkbox
+        let before_enabled = eq.enabled;
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut eq.enabled, "");
+            ui.strong("Equalizer (8-band)");
+        });
+        if eq.enabled != before_enabled {
+            changes.push(EffectChange {
+                update: ParameterUpdate::EqualizerEnabled { chain, enabled: eq.enabled },
+                description: format!("EQ {} {}", chain + 1, if eq.enabled { "on" } else { "off" }),
+            });
+        }
+
+        ui.add_space(4.0);
+
+        ui.scope(|ui| {
+            if !eq.enabled { ui.disable(); }
+
+            // EQ band sliders in a horizontal row
+            let band_width = (ui.available_width() / 8.0).min(80.0);
+
+            ui.horizontal(|ui| {
+                for band in 0..8 {
+                    ui.vertical(|ui| {
+                        ui.set_width(band_width);
+                        ui.label(EQ_LABELS[band]);
+
+                        let before = eq.gains[band];
+                        ui.add(
+                            egui::Slider::new(&mut eq.gains[band], -12.0..=12.0)
+                                .vertical()
+                                .text("dB")
+                                .custom_formatter(|v, _| format!("{:+.1}", v)),
+                        );
+                        if (eq.gains[band] - before).abs() > 0.05 {
+                            changes.push(EffectChange {
+                                update: ParameterUpdate::EqualizerBandGain {
+                                    chain,
+                                    band,
+                                    gain_db: eq.gains[band],
+                                },
+                                description: format!(
+                                    "EQ {} {} Hz → {:+.1} dB",
+                                    chain + 1, EQ_LABELS[band], eq.gains[band]
+                                ),
+                            });
+                        }
+                    });
+                }
+            });
+
+            // Reset button
+            if ui.small_button("Reset All Bands").clicked() {
+                for band in 0..8 {
+                    if eq.gains[band] != 0.0 {
+                        eq.gains[band] = 0.0;
+                        changes.push(EffectChange {
+                            update: ParameterUpdate::EqualizerBandGain {
+                                chain,
+                                band,
+                                gain_db: 0.0,
+                            },
+                            description: format!("EQ {} reset all bands → 0 dB", chain + 1),
+                        });
+                    }
+                }
+            }
+        });
+
+        changes
+    }
+}
+
 // --- Effect tab selection ---
 
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -241,7 +348,6 @@ pub struct EffectsRackState {
     pub delay: DelayState,
     pub chorus: ChorusState,
     pub filter: FilterState,
-    pub equalizer: EqualizerState,
     pub active_tab: EffectTab,
 }
 
@@ -255,7 +361,6 @@ impl Default for EffectsRackState {
             delay: DelayState::default(),
             chorus: ChorusState::default(),
             filter: FilterState::default(),
-            equalizer: EqualizerState::default(),
             active_tab: EffectTab::default(),
         }
     }
@@ -289,72 +394,6 @@ impl EffectsRackState {
             EffectTab::Chorus => self.render_chorus(ui, &mut changes),
             EffectTab::Filter => self.render_filter(ui, &mut changes),
         }
-
-        changes
-    }
-
-    /// Render ONLY the equalizer (always visible, no collapsing). Returns a list of parameter changes.
-    pub fn render_equalizer_panel(&mut self, ui: &mut egui::Ui) -> Vec<EffectChange> {
-        let mut changes = Vec::new();
-
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.equalizer.enabled, "");
-            ui.strong("Equalizer (8-band)");
-        });
-
-        ui.add_space(4.0);
-
-        ui.scope(|ui| {
-            if !self.equalizer.enabled { ui.disable(); }
-
-            // EQ band sliders in a horizontal row
-            let band_width = (ui.available_width() / 8.0).min(80.0);
-
-            ui.horizontal(|ui| {
-                for band in 0..8 {
-                    ui.vertical(|ui| {
-                        ui.set_width(band_width);
-                        ui.label(EQ_LABELS[band]);
-
-                        let before = self.equalizer.gains[band];
-                        ui.add(
-                            egui::Slider::new(&mut self.equalizer.gains[band], -12.0..=12.0)
-                                .vertical()
-                                .text("dB")
-                                .custom_formatter(|v, _| format!("{:+.1}", v)),
-                        );
-                        if (self.equalizer.gains[band] - before).abs() > 0.05 {
-                            changes.push(EffectChange {
-                                update: ParameterUpdate::EqualizerBandGain {
-                                    band,
-                                    gain_db: self.equalizer.gains[band],
-                                },
-                                description: format!(
-                                    "EQ {} Hz → {:+.1} dB",
-                                    EQ_LABELS[band], self.equalizer.gains[band]
-                                ),
-                            });
-                        }
-                    });
-                }
-            });
-
-            // Reset button
-            if ui.small_button("Reset All Bands").clicked() {
-                for band in 0..8 {
-                    if self.equalizer.gains[band] != 0.0 {
-                        self.equalizer.gains[band] = 0.0;
-                        changes.push(EffectChange {
-                            update: ParameterUpdate::EqualizerBandGain {
-                                band,
-                                gain_db: 0.0,
-                            },
-                            description: "EQ reset all bands → 0 dB".to_string(),
-                        });
-                    }
-                }
-            }
-        });
 
         changes
     }

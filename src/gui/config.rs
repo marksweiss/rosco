@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use super::effect_chains::EffectChainsState;
-use super::effects::EffectsRackState;
+use super::effects::{EffectsRackState, EqualizersState};
 use super::envelope::EnvelopesState;
 use super::oscillator::OscillatorChainsState;
 use super::sequencer::{TrackStrip, NUM_TRACKS};
@@ -78,6 +78,8 @@ pub struct SessionState {
     pub envelopes: EnvelopesState,
     pub effects: EffectsRackState,
     #[serde(default)]
+    pub equalizers: EqualizersState,
+    #[serde(default)]
     pub effect_chains: EffectChainsState,
     pub tracks: Vec<TrackStrip>,
 }
@@ -112,6 +114,7 @@ impl Default for SessionState {
             tempo: 120.0,
             envelopes: EnvelopesState::default(),
             effects: EffectsRackState::default(),
+            equalizers: EqualizersState::default(),
             effect_chains: EffectChainsState::default(),
             tracks: (0..NUM_TRACKS).map(|_| TrackStrip::default()).collect(),
         }

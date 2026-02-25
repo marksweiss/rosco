@@ -8,6 +8,7 @@ use super::sequencer::{SequencerState, NUM_STEPS, NUM_TRACKS};
 pub struct DslLoadResult {
     pub envelopes: EnvelopesState,
     pub effects: EffectsRackState,
+    pub equalizers: EqualizersState,
     pub sequencer: SequencerState,
     pub tempo: f32,
     pub status: String,
@@ -30,6 +31,7 @@ fn load_dsl_string(input: &str) -> Result<DslLoadResult, String> {
 
     let mut envelopes = EnvelopesState::default();
     let mut effects = EffectsRackState::default();
+    let equalizers = EqualizersState::default();
     let mut sequencer = SequencerState::default();
 
     // Extract tempo from first track's sequence
@@ -121,6 +123,7 @@ fn load_dsl_string(input: &str) -> Result<DslLoadResult, String> {
     Ok(DslLoadResult {
         envelopes,
         effects,
+        equalizers,
         sequencer,
         tempo,
         status,
@@ -131,6 +134,7 @@ fn load_dsl_string(input: &str) -> Result<DslLoadResult, String> {
 pub fn export_dsl_string(
     envelopes: &EnvelopesState,
     effects: &EffectsRackState,
+    equalizers: &EqualizersState,
     sequencer: &SequencerState,
     tempo: f32,
 ) -> String {
@@ -198,6 +202,13 @@ pub fn export_dsl_string(
                     effects.vibrato.avg_delay, effects.vibrato.mod_width, effects.vibrato.mod_freq
                 ));
             }
+        }
+
+        // Per-track equalizer
+        if track_idx < 8 && equalizers.equalizers[track_idx].enabled {
+            let gains: Vec<String> = equalizers.equalizers[track_idx].gains
+                .iter().map(|g| format!("{:.1}", g)).collect();
+            out.push_str(&format!("  equalizer gains {}\n", gains.join(",")));
         }
 
         // Note declarations for enabled steps
