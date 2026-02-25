@@ -5,7 +5,6 @@ use crate::audio_gen::oscillator::{self, OscillatorTables, Waveform};
 use crate::common::constants::SAMPLE_RATE;
 use crate::note::constants::PITCH_TO_FREQ_HZ;
 use crate::effect::chorus::ChorusBuilder;
-use crate::effect::delay::DelayBuilder;
 use crate::effect::equalizer::{Equalizer, default_equalizer};
 use crate::effect::flanger::FlangerBuilder;
 use crate::effect::lfo::{LFOBuilder, LFO};
@@ -31,6 +30,59 @@ fn table_lookup(table: &[f32], phase: f64) -> f32 {
     table[index] + frac * (table[next_index] - table[index])
 }
 
+// --- Feedback delay line for real-time processing ---
+
+struct DelayLine {
+    buffer: Vec<f32>,
+    write_pos: usize,
+    delay_samples: usize,
+    feedback: f32,
+    mix: f32,
+}
+
+impl DelayLine {
+    fn new(delay_ms: f32, feedback: f32, mix: f32) -> Self {
+        // Max buffer ~2 seconds at 44.1kHz
+        let max_samples = (SAMPLE_RATE * 2.0) as usize;
+        let delay_samples = ((delay_ms / 1000.0) * SAMPLE_RATE).round() as usize;
+        let buf_size = delay_samples.max(1).min(max_samples);
+        Self {
+            buffer: vec![0.0; buf_size],
+            write_pos: 0,
+            delay_samples: delay_samples.min(buf_size),
+            feedback: feedback.clamp(0.0, 0.95),
+            mix: mix.clamp(0.0, 1.0),
+        }
+    }
+
+    fn process_sample(&mut self, input: f32) -> f32 {
+        let buf_len = self.buffer.len();
+        let read_pos = (self.write_pos + buf_len - self.delay_samples) % buf_len;
+        let delayed = self.buffer[read_pos];
+        self.buffer[self.write_pos] = input + self.feedback * delayed;
+        self.write_pos = (self.write_pos + 1) % buf_len;
+        input + self.mix * delayed
+    }
+
+    fn update_params(&mut self, delay_ms: f32, feedback: f32, mix: f32) {
+        let max_samples = (SAMPLE_RATE * 2.0) as usize;
+        let new_delay_samples = ((delay_ms / 1000.0) * SAMPLE_RATE).round() as usize;
+        let new_delay_samples = new_delay_samples.max(1).min(max_samples);
+
+        // Grow buffer if needed, preserving existing content
+        if new_delay_samples > self.buffer.len() {
+            self.buffer.resize(new_delay_samples, 0.0);
+        }
+        self.delay_samples = new_delay_samples.min(self.buffer.len());
+        self.feedback = feedback.clamp(0.0, 0.95);
+        self.mix = mix.clamp(0.0, 1.0);
+    }
+
+    fn delay_ms(&self) -> f32 {
+        (self.delay_samples as f32 / SAMPLE_RATE) * 1000.0
+    }
+}
+
 // --- Effect chain types for real-time processing ---
 
 enum LiveEffect {
@@ -39,7 +91,7 @@ enum LiveEffect {
     Vibrato(crate::effect::vibrato::Vibrato),
     Flanger(crate::effect::flanger::Flanger),
     Chorus(crate::effect::chorus::Chorus),
-    Delay(crate::effect::delay::Delay),
+    Delay(DelayLine),
     LowPass(crate::filter::low_pass_filter::LowPassFilter),
     HighPass(crate::filter::high_pass_filter::HighPassFilter),
     BandPass(crate::filter::band_pass_filter::BandPassFilter),
@@ -54,7 +106,7 @@ impl LiveEffect {
             LiveEffect::Vibrato(e) => e.apply_effect(sample, sample_clock as f32),
             LiveEffect::Flanger(e) => e.apply_effect(sample, sample_clock as f32),
             LiveEffect::Chorus(e) => e.apply_effect(sample, sample_clock as f32),
-            LiveEffect::Delay(e) => e.apply_effect(sample, sample_clock as f32),
+            LiveEffect::Delay(d) => d.process_sample(sample),
             LiveEffect::LowPass(e) => e.apply_effect(sample, sample_clock as f32),
             LiveEffect::HighPass(e) => e.apply_effect(sample, sample_clock as f32),
             LiveEffect::BandPass(e) => e.apply_effect(sample, sample_clock as f32),
@@ -133,15 +185,8 @@ fn build_live_effects(instances: &[EffectInstance]) -> (Vec<LiveEffect>, Vec<boo
                 (LiveEffect::Chorus(e), s.enabled)
             }
             EffectInstance::Delay(s) => {
-                let e = DelayBuilder::default()
-                    .mix(s.mix)
-                    .decay(s.decay)
-                    .interval_ms(s.interval_ms)
-                    .duration_ms(s.duration_ms)
-                    .num_repeats(s.num_repeats)
-                    .build()
-                    .unwrap();
-                (LiveEffect::Delay(e), s.enabled)
+                let d = DelayLine::new(s.interval_ms, s.decay, s.mix);
+                (LiveEffect::Delay(d), s.enabled)
             }
             EffectInstance::Lfo(s) => {
                 let freq = s.frequency.clamp(0.01, 22050.0);
@@ -499,9 +544,29 @@ impl SynthState {
                 }
                 ParameterUpdate::EffectChainUpdate { chain, instances } => {
                     if (chain as usize) < NUM_CHAINS {
-                        let (effects, enabled) = build_live_effects(&instances);
-                        self.effect_chains[chain as usize].effects = effects;
-                        self.effect_chains[chain as usize].enabled = enabled;
+                        let (new_effects, new_enabled) = build_live_effects(&instances);
+                        let ec = &mut self.effect_chains[chain as usize];
+                        let new_len = new_effects.len();
+
+                        for (i, new_effect) in new_effects.into_iter().enumerate() {
+                            if i < ec.effects.len() {
+                                // Preserve delay line buffer when only params changed
+                                if let (LiveEffect::Delay(existing), LiveEffect::Delay(ref new_dl)) =
+                                    (&mut ec.effects[i], &new_effect)
+                                {
+                                    existing.update_params(new_dl.delay_ms(), new_dl.feedback, new_dl.mix);
+                                    ec.enabled[i] = new_enabled[i];
+                                    continue;
+                                }
+                                ec.effects[i] = new_effect;
+                                ec.enabled[i] = new_enabled[i];
+                            } else {
+                                ec.effects.push(new_effect);
+                                ec.enabled.push(new_enabled[i]);
+                            }
+                        }
+                        ec.effects.truncate(new_len);
+                        ec.enabled.truncate(new_len);
                     }
                 }
                 ParameterUpdate::EffectChainDryWet { chain, dry_wet } => {
@@ -592,6 +657,28 @@ impl SynthState {
 
             let note = &self.active_notes[track_idx];
             if !note.active {
+                // Still process effect chains with silence so delay echo tails ring out
+                let sample_clock = self.sample_clock;
+                let ec = &mut self.effect_chains[track_idx];
+                if !ec.effects.is_empty() && ec.dry_wet > 0.0 {
+                    let mut wet_sample = 0.0_f32;
+                    for (i, effect) in ec.effects.iter_mut().enumerate() {
+                        if ec.enabled[i] {
+                            wet_sample = effect.process_sample(wet_sample, sample_clock);
+                        }
+                    }
+                    let tail = wet_sample * ec.dry_wet;
+                    if tail.abs() > 1e-7 {
+                        let track_vol = self.tracks[track_idx].volume;
+                        let chain_level = self.chains[track_idx].level;
+                        let amplitude = tail * track_vol * chain_level * self.master_volume;
+                        let pan = self.tracks[track_idx].pan;
+                        let left_gain = ((1.0 - pan) * 0.5 + 0.5).min(1.0);
+                        let right_gain = ((1.0 + pan) * 0.5).min(1.0);
+                        left += amplitude * left_gain;
+                        right += amplitude * right_gain;
+                    }
+                }
                 continue;
             }
 
