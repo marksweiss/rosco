@@ -1,12 +1,12 @@
 use crate::dsl::parser::parse_dsl;
 
 use super::effects::*;
-use super::envelope::EnvelopeState;
+use super::envelope::EnvelopesState;
 use super::sequencer::{SequencerState, NUM_STEPS, NUM_TRACKS};
 
 /// Result of loading a DSL file into GUI state.
 pub struct DslLoadResult {
-    pub envelope: EnvelopeState,
+    pub envelopes: EnvelopesState,
     pub effects: EffectsRackState,
     pub sequencer: SequencerState,
     pub tempo: f32,
@@ -28,7 +28,7 @@ fn load_dsl_string(input: &str) -> Result<DslLoadResult, String> {
         return Err("DSL file contains no tracks".to_string());
     }
 
-    let mut envelope = EnvelopeState::default();
+    let mut envelopes = EnvelopesState::default();
     let mut effects = EffectsRackState::default();
     let mut sequencer = SequencerState::default();
 
@@ -37,13 +37,20 @@ fn load_dsl_string(input: &str) -> Result<DslLoadResult, String> {
     let tempo = first_track.sequence.tempo as f32;
     let step_duration_ms = 60000.0 / tempo; // quarter note duration
 
-    // Extract envelope from first track (first envelope if present)
-    let fx = &first_track.effects;
-    if let Some(env) = fx.envelopes.first() {
-        envelope.attack = (env.attack.0, env.attack.1);
-        envelope.decay = (env.decay.0, env.decay.1);
-        envelope.sustain = (env.sustain.0, env.sustain.1);
+    // Extract per-track envelopes
+    for (track_idx, track) in track_grid.tracks.iter().enumerate() {
+        if track_idx >= NUM_TRACKS {
+            break;
+        }
+        if let Some(env) = track.effects.envelopes.first() {
+            envelopes.envelopes[track_idx].attack = (env.attack.0, env.attack.1);
+            envelopes.envelopes[track_idx].decay = (env.decay.0, env.decay.1);
+            envelopes.envelopes[track_idx].sustain = (env.sustain.0, env.sustain.1);
+        }
     }
+
+    // Extract effects from first track
+    let fx = &first_track.effects;
 
     // Map delay
     if let Some(delay) = fx.delays.first() {
@@ -112,7 +119,7 @@ fn load_dsl_string(input: &str) -> Result<DslLoadResult, String> {
     let status = format!("Loaded {} tracks from DSL", num_tracks);
 
     Ok(DslLoadResult {
-        envelope,
+        envelopes,
         effects,
         sequencer,
         tempo,
@@ -122,7 +129,7 @@ fn load_dsl_string(input: &str) -> Result<DslLoadResult, String> {
 
 /// Export current GUI state as a DSL string.
 pub fn export_dsl_string(
-    envelope: &EnvelopeState,
+    envelopes: &EnvelopesState,
     effects: &EffectsRackState,
     sequencer: &SequencerState,
     tempo: f32,
@@ -145,16 +152,19 @@ pub fn export_dsl_string(
             super::sequencer::NUM_STEPS
         ));
 
-        // Envelope (only on first track)
-        if track_idx == 0 {
+        // Per-track envelope
+        if track_idx < 8 {
+            let env = &envelopes.envelopes[track_idx];
             out.push_str(&format!(
                 "  env a {:.2},{:.2} d {:.2},{:.2} s {:.2},{:.2} r 1.0,0.0\n",
-                envelope.attack.0, envelope.attack.1,
-                envelope.decay.0, envelope.decay.1,
-                envelope.sustain.0, envelope.sustain.1,
+                env.attack.0, env.attack.1,
+                env.decay.0, env.decay.1,
+                env.sustain.0, env.sustain.1,
             ));
+        }
 
-            // Effects (only on first track)
+        // Effects (only on first track)
+        if track_idx == 0 {
             if effects.delay.enabled {
                 out.push_str(&format!(
                     "  delay mix {:.2} decay {:.2} interval {:.1} duration {:.1} repeats {}\n",

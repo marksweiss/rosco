@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use super::effect_chains::EffectChainsState;
 use super::effects::EffectsRackState;
-use super::envelope::EnvelopeState;
+use super::envelope::EnvelopesState;
 use super::oscillator::OscillatorChainsState;
 use super::sequencer::{TrackStrip, NUM_TRACKS};
 use super::theme::GuiTheme;
@@ -74,7 +74,8 @@ pub struct SessionState {
     #[serde(default)]
     pub oscillator_chains: OscillatorChainsState,
     pub tempo: f32,
-    pub envelope: EnvelopeState,
+    #[serde(default)]
+    pub envelopes: EnvelopesState,
     pub effects: EffectsRackState,
     #[serde(default)]
     pub effect_chains: EffectChainsState,
@@ -109,7 +110,7 @@ impl Default for SessionState {
         Self {
             oscillator_chains: OscillatorChainsState::default(),
             tempo: 120.0,
-            envelope: EnvelopeState::default(),
+            envelopes: EnvelopesState::default(),
             effects: EffectsRackState::default(),
             effect_chains: EffectChainsState::default(),
             tracks: (0..NUM_TRACKS).map(|_| TrackStrip::default()).collect(),

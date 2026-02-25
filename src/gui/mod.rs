@@ -20,7 +20,7 @@ use audio_engine::AudioEngine;
 use config::{GuiConfig, SessionState};
 use effect_chains::EffectChainsState;
 use effects::EffectsRackState;
-use envelope::EnvelopeState;
+use envelope::EnvelopesState;
 use oscillator::OscillatorChainsState;
 use sequencer::SequencerState;
 use shortcuts::{FocusPanel, ShortcutAction, UndoStack};
@@ -34,7 +34,7 @@ pub struct RoscoGuiApp {
     audio_engine_active: bool,
     params: SynthParameters,
     oscillator_chains: OscillatorChainsState,
-    envelope: EnvelopeState,
+    envelopes: EnvelopesState,
     effects: EffectsRackState,
     effect_chains: EffectChainsState,
     sequencer: SequencerState,
@@ -77,7 +77,7 @@ impl RoscoGuiApp {
             audio_engine_active,
             params: SynthParameters::default(),
             oscillator_chains: OscillatorChainsState::default(),
-            envelope: EnvelopeState::default(),
+            envelopes: EnvelopesState::default(),
             effects: EffectsRackState::default(),
             effect_chains: EffectChainsState::default(),
             sequencer: SequencerState::default(),
@@ -176,16 +176,19 @@ impl RoscoGuiApp {
                 );
             }
         }
-        // Envelope
-        let _ = self.audio_bridge.send_parameter_update(
-            ParameterUpdate::EnvelopeAttack(self.envelope.attack.0),
-        );
-        let _ = self.audio_bridge.send_parameter_update(
-            ParameterUpdate::EnvelopeDecay(self.envelope.decay.0),
-        );
-        let _ = self.audio_bridge.send_parameter_update(
-            ParameterUpdate::EnvelopeSustain(self.envelope.sustain.0),
-        );
+        // Envelopes (per-track)
+        for (i, env) in self.envelopes.envelopes.iter().enumerate() {
+            let track = i as u8;
+            let _ = self.audio_bridge.send_parameter_update(
+                ParameterUpdate::EnvelopeAttack { track, value: env.attack.0 },
+            );
+            let _ = self.audio_bridge.send_parameter_update(
+                ParameterUpdate::EnvelopeDecay { track, value: env.decay.0 },
+            );
+            let _ = self.audio_bridge.send_parameter_update(
+                ParameterUpdate::EnvelopeSustain { track, value: env.sustain.0 },
+            );
+        }
         // Effect chains
         for (i, chain) in self.effect_chains.chains.iter().enumerate() {
             if !chain.effects.is_empty() {
@@ -249,20 +252,19 @@ impl RoscoGuiApp {
     }
 
     fn render_envelope(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Envelope");
-        ui.add_space(4.0);
-
         let theme = self.theme.clone();
-        if let Some(msg) = self.envelope.render(ui, &theme) {
-            // Send bridge updates for the envelope changes
+        let selected = self.envelopes.selected;
+        if let Some(msg) = self.envelopes.render(ui, &theme) {
+            let env = &self.envelopes.envelopes[selected];
+            let track = selected as u8;
             let _ = self.audio_bridge.send_parameter_update(
-                ParameterUpdate::EnvelopeAttack(self.envelope.attack.0),
+                ParameterUpdate::EnvelopeAttack { track, value: env.attack.0 },
             );
             let _ = self.audio_bridge.send_parameter_update(
-                ParameterUpdate::EnvelopeDecay(self.envelope.decay.0),
+                ParameterUpdate::EnvelopeDecay { track, value: env.decay.0 },
             );
             let _ = self.audio_bridge.send_parameter_update(
-                ParameterUpdate::EnvelopeSustain(self.envelope.sustain.0),
+                ParameterUpdate::EnvelopeSustain { track, value: env.sustain.0 },
             );
             self.status_message = msg;
         }
@@ -404,7 +406,7 @@ impl RoscoGuiApp {
         let session = SessionState {
             oscillator_chains: self.oscillator_chains.clone(),
             tempo: self.transport.tempo,
-            envelope: self.envelope.to_serializable(),
+            envelopes: self.envelopes.to_serializable(),
             effects: self.effects.clone(),
             effect_chains: self.effect_chains.clone(),
             tracks: self.sequencer.tracks.to_vec(),
@@ -421,7 +423,7 @@ impl RoscoGuiApp {
             let path_str = path.display().to_string();
             match dsl_bridge::load_dsl_file(&path_str) {
                 Ok(result) => {
-                    self.envelope = result.envelope;
+                    self.envelopes = result.envelopes;
                     self.effects = result.effects;
                     self.sequencer = result.sequencer;
                     self.transport.tempo = result.tempo;
@@ -437,7 +439,7 @@ impl RoscoGuiApp {
 
     fn export_dsl_dialog(&self) {
         let dsl_text = dsl_bridge::export_dsl_string(
-            &self.envelope,
+            &self.envelopes,
             &self.effects,
             &self.sequencer,
             self.transport.tempo,

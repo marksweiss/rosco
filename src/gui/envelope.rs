@@ -30,7 +30,7 @@ pub enum Segment {
 /// GUI state for the interactive ADSR envelope editor.
 /// Mirrors the engine's Envelope struct (src/envelope/envelope.rs) but
 /// is owned by the GUI and communicated to audio via ParameterUpdate.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EnvelopeState {
     // ADSR control points: (position 0.0–1.0, volume 0.0–1.0)
@@ -82,6 +82,59 @@ impl Default for EnvelopeState {
 const POINT_RADIUS: f32 = 6.0;
 const HIT_RADIUS: f32 = 14.0;
 const CURVE_SAMPLES: usize = 48;
+
+// --- Multi-envelope wrapper (8 independent envelopes, one per track) ---
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnvelopesState {
+    pub envelopes: [EnvelopeState; 8],
+    #[serde(skip)]
+    pub selected: usize,
+}
+
+impl Default for EnvelopesState {
+    fn default() -> Self {
+        Self {
+            envelopes: std::array::from_fn(|_| EnvelopeState::default()),
+            selected: 0,
+        }
+    }
+}
+
+impl EnvelopesState {
+    pub fn render(&mut self, ui: &mut egui::Ui, theme: &GuiTheme) -> Option<String> {
+        ui.heading("Envelope");
+        ui.add_space(4.0);
+
+        // Tab bar (1-8)
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+            for i in 0..8 {
+                let selected = self.selected == i;
+                let label = format!("{}", i + 1);
+                if ui.selectable_label(selected, label).clicked() {
+                    self.selected = i;
+                }
+            }
+        });
+
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        // Render selected envelope
+        self.envelopes[self.selected].render(ui, theme)
+            .map(|msg| format!("Env {}: {}", self.selected + 1, msg))
+    }
+
+    pub fn to_serializable(&self) -> Self {
+        Self {
+            envelopes: std::array::from_fn(|i| self.envelopes[i].to_serializable()),
+            selected: 0,
+        }
+    }
+}
 
 impl EnvelopeState {
     /// Create a copy suitable for serialization (resets transient drag state).

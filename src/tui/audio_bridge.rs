@@ -32,11 +32,11 @@ pub enum ParameterUpdate {
     FilterMix(f32),
     FilterBandwidth(f32),
 
-    // Envelope (legacy simple variants)
-    EnvelopeAttack(f32),
-    EnvelopeDecay(f32),
-    EnvelopeSustain(f32),
-    EnvelopeRelease(f32),
+    // Envelope (per-track)
+    EnvelopeAttack { track: u8, value: f32 },
+    EnvelopeDecay { track: u8, value: f32 },
+    EnvelopeSustain { track: u8, value: f32 },
+    EnvelopeRelease { track: u8, value: f32 },
 
     // Delay
     DelayMix(f32),

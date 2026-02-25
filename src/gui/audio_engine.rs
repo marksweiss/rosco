@@ -275,7 +275,7 @@ struct SynthState {
     tracks: [TrackState; NUM_TRACKS],
     active_notes: [NoteState; NUM_TRACKS],
 
-    envelope: EnvelopeParams,
+    envelopes: [EnvelopeParams; NUM_TRACKS],
     master_volume: f32,
 
     osc_tables: OscillatorTables,
@@ -297,7 +297,7 @@ impl SynthState {
             chains,
             tracks: Default::default(),
             active_notes: Default::default(),
-            envelope: EnvelopeParams::default(),
+            envelopes: std::array::from_fn(|_| EnvelopeParams::default()),
             master_volume: 0.75,
             osc_tables: OscillatorTables::new(),
             effect_chains: Default::default(),
@@ -325,7 +325,7 @@ impl SynthState {
 
     /// Compute a simple ADSR envelope value for a note.
     /// The envelope positions (attack, decay, sustain) are fractions of the step duration.
-    fn envelope_value(&self, note: &NoteState) -> f32 {
+    fn envelope_value(&self, note: &NoteState, track_idx: usize) -> f32 {
         if !note.active || note.step_duration_samples == 0 {
             return 0.0;
         }
@@ -333,9 +333,9 @@ impl SynthState {
         let duration = note.step_duration_samples as f32;
         let t = (elapsed / duration).min(1.0); // 0.0 to 1.0 through the step
 
-        let atk = self.envelope.attack;
-        let dec = self.envelope.decay;
-        let sus = self.envelope.sustain;
+        let atk = self.envelopes[track_idx].attack;
+        let dec = self.envelopes[track_idx].decay;
+        let sus = self.envelopes[track_idx].sustain;
 
         if t < atk {
             // Attack: ramp 0 -> 1
@@ -414,14 +414,20 @@ impl SynthState {
                         self.tracks[track as usize].mute = muted;
                     }
                 }
-                ParameterUpdate::EnvelopeAttack(v) => {
-                    self.envelope.attack = v;
+                ParameterUpdate::EnvelopeAttack { track, value } => {
+                    if (track as usize) < NUM_TRACKS {
+                        self.envelopes[track as usize].attack = value;
+                    }
                 }
-                ParameterUpdate::EnvelopeDecay(v) => {
-                    self.envelope.decay = v;
+                ParameterUpdate::EnvelopeDecay { track, value } => {
+                    if (track as usize) < NUM_TRACKS {
+                        self.envelopes[track as usize].decay = value;
+                    }
                 }
-                ParameterUpdate::EnvelopeSustain(v) => {
-                    self.envelope.sustain = v;
+                ParameterUpdate::EnvelopeSustain { track, value } => {
+                    if (track as usize) < NUM_TRACKS {
+                        self.envelopes[track as usize].sustain = value;
+                    }
                 }
                 ParameterUpdate::OscillatorVolume(v) => {
                     self.master_volume = v;
@@ -543,7 +549,7 @@ impl SynthState {
             }
 
             // Apply envelope
-            let env = self.envelope_value(note);
+            let env = self.envelope_value(note, track_idx);
             sample *= env;
 
             // Apply effect chain for this track
